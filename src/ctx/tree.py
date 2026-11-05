@@ -221,7 +221,7 @@ def computed_summary(node: str | Path) -> str:
     """Deterministic summary of a container, built from its children, most recently updated first.
 
     `ml-intro: <summary> · rl: <summary> · also: deep-learning, algebra`: children with a summary
-    are quoted (each cut at ENTRY_SUMMARY on a word boundary) while they fit in MAX_SUMMARY, the
+    are quoted (cut on a word boundary, at least ENTRY_SUMMARY) while they fit in MAX_SUMMARY, the
     rest are only named.
     """
     kids = []
@@ -239,8 +239,9 @@ def computed_summary(node: str | Path) -> str:
         return ""
     kids.sort(key=lambda kid: kid[0], reverse=True)  # stable: name order among equal dates
     quoted, named, full = [], [], False
+    width = max(ENTRY_SUMMARY, (MAX_SUMMARY - 30) // sum(1 for kid in kids if kid[2]) - 20)
     for _u, name, text in kids:
-        entry = f"{name}: {word_clip(text, ENTRY_SUMMARY)}" if text else ""
+        entry = f"{name}: {word_clip(text, width)}" if text else ""
         full = full or bool(entry) and len(" · ".join(quoted + [entry])) > MAX_SUMMARY - 30
         if entry and not full:
             quoted.append(entry)
@@ -346,7 +347,8 @@ def show_tree() -> int:
         except OSError:
             continue
         depth = sum(ancestor in nodes for ancestor in n.parents)
-        name = "~" if n == root() else n.name + "/"
+        par = parent_node(n)
+        name = "~" if n == root() else (child_label(par, n) if par else n.name) + "/"
         print(f"{'  ' * depth}{name}{'' if doc.absorb else ' [absorb:false]'} — "
               f"{'(private)' if doc.private else clip(doc.summary, 100)}")
     return 0

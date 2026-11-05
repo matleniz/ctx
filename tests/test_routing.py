@@ -57,6 +57,26 @@ class Routing(test_ctx.Base):
         self.assertIn("group/deep: Deep work", self.doc("projects").summary)
 
 
+class ContainerSync(test_ctx.Base):
+    def test_talk_only_session_never_bootstraps_a_container(self):
+        fake = Fake(test_ctx.fake_output(summary="No work state is recorded here"))
+        ctx.sync.sync_targets("s1", {self.home: []}, ["what is going on?"], fake)
+        self.assertEqual(fake.calls, [])
+        self.assertNotEqual(self.doc("").summary, "No work state is recorded here")
+        self.assertIn("container, no file of its own", (self.home / ".ctx" / "log").read_text())
+
+    def test_talk_only_session_still_bootstraps_a_project_node(self):
+        fake = Fake(test_ctx.fake_output(summary="Looked around"))
+        ctx.sync.sync_targets("s1", {self.p("notes"): []}, ["looked around"], fake)
+        self.assertEqual(len(fake.calls), 1)
+
+    def test_single_child_is_quoted_almost_whole(self):
+        n = self.p("courses/ml-intro")
+        long = "word " * 50
+        ctx.sync_node(n, [str(n / "a.py")], [], Fake(test_ctx.fake_output(summary=long.strip())))
+        self.assertGreater(len(self.doc("courses").summary), 200)
+
+
 class ContainerInjection(test_ctx.Base):
     def test_container_injects_no_placeholder_no_computed_summary_one_subfolders(self):
         ctx.sync_node(self.p("courses/ml-intro"), [str(self.p("courses/ml-intro/a.py"))], [],

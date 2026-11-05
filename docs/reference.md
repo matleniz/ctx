@@ -60,8 +60,8 @@ with ` · decisions: N` when N active decisions exist (a count, never their text
   an absorbing node). The header key is `absorb`; a header without it means true. `ctx show --tree` marks
   `[absorb:false]` nodes.
 - **Summaries.** A node never rewritten at its own level (placeholder or `summary: auto`) shows a computed summary,
-  no model call: its non-private children, most recently updated first, as `<child>: <summary>` (each cut at 120
-  characters on a word boundary) joined with ` · ` while they fit in 300 characters, then `also: <names>`. A session
+  no model call: its non-private children, most recently updated first, as `<child>: <summary>` (cut on a word boundary,
+  to share the room, at least 120 characters each) joined with ` · ` while they fit in 300 characters, then `also: <names>`. A session
   rewrite keeps its own summary, which bubble-up never overwrites.
 - **`.ctxignore`.** Optional file in the root, one glob per line (`#` comments): matching folders are never nodes or
   scanned. The root is `CTX_ROOT` if set, else your home.

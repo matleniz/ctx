@@ -437,11 +437,13 @@ def sync_targets(sid: str, targets: dict, msgs: list[str], rewriter: Callable) -
     """
     results = []
     for node, node_files in sorted(targets.items(), key=lambda kv: -len(kv[0].parts)):
-        # nothing of this session landed in the node: no call, unless light_worthy (sync-light)
-        light = not node_files and not needs_bootstrap(node)
+        # nothing of this session landed in the node: no call, unless light_worthy (sync-light);
+        # a container is never bootstrapped by a session that only talked in it
+        container = not node_files and not read_doc(node).absorb
+        light = not node_files and (container or not needs_bootstrap(node))
         if light and not light_worthy(msgs):
-            log("skip", node=node, session=sid,
-                why="no file routed to node, summary already filled")
+            log("skip", node=node, session=sid, why="container, no file of its own" if container
+                else "no file routed to node, summary already filled")
             continue
         try:
             with deadline(sync_deadline()):
