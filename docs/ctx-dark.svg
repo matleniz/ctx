@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="640" viewBox="0 0 1040 640" role="img" aria-labelledby="t d">
+<title id="t">ctx: one CONTEXT.md per folder, state goes up, rules come down</title>
+<desc id="d">A folder tree: ~, projects with app, courses with algebra and ml-intro. Each folder has an AGENTS.md card and a CONTEXT.md card. Green arrows go straight up from each CONTEXT.md to its parent CONTEXT.md, carrying a one-line summary to the root. Orange lines bring AGENTS.md rules down from each folder to its children, natively. Under ml-intro, a terminal icon (your session ends) points up into its CONTEXT.md, rewritten by one model call (document and pencil icon).</desc>
+<rect x="0" y="0" width="1040" height="640" fill="#0d182e"/>
+<text x="40" y="34" font-size="18" fill="#dfe4b3" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">one CONTEXT.md per folder: state goes up, rules come down</text>
+<rect x="40" y="52" width="820" height="40" fill="#192748"/>
+<text x="52" y="78" font-size="16" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">~</text>
+<rect x="74" y="56" width="100" height="32" fill="#0d182e"/>
+<text x="124.0" y="77" font-size="14" text-anchor="middle" fill="#7897cf" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">AGENTS.md</text>
+<rect x="720" y="56" width="136" height="32" fill="#0d182e"/>
+<text x="788.0" y="77" font-size="14" text-anchor="middle" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">CONTEXT.md</text>
+<rect x="80" y="132" width="700" height="40" fill="#192748"/>
+<text x="92" y="158" font-size="16" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">projects</text>
+<rect x="181" y="136" width="100" height="32" fill="#0d182e"/>
+<text x="231.0" y="157" font-size="14" text-anchor="middle" fill="#7897cf" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">AGENTS.md</text>
+<rect x="640" y="136" width="136" height="32" fill="#0d182e"/>
+<text x="708.0" y="157" font-size="14" text-anchor="middle" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">CONTEXT.md</text>
+<rect x="120" y="212" width="700" height="40" fill="#192748"/>
+<text x="132" y="238" font-size="16" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">app</text>
+<rect x="173" y="216" width="100" height="32" fill="#0d182e"/>
+<text x="223.0" y="237" font-size="14" text-anchor="middle" fill="#7897cf" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">AGENTS.md</text>
+<rect x="680" y="216" width="136" height="32" fill="#0d182e"/>
+<text x="748.0" y="237" font-size="14" text-anchor="middle" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">CONTEXT.md</text>
+<rect x="80" y="292" width="780" height="40" fill="#192748"/>
+<text x="92" y="318" font-size="16" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">courses</text>
+<rect x="171" y="296" width="100" height="32" fill="#0d182e"/>
+<text x="221.0" y="317" font-size="14" text-anchor="middle" fill="#7897cf" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">AGENTS.md</text>
+<rect x="720" y="296" width="136" height="32" fill="#0d182e"/>
+<text x="788.0" y="317" font-size="14" text-anchor="middle" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">CONTEXT.md</text>
+<rect x="120" y="372" width="780" height="40" fill="#192748"/>
+<text x="132" y="398" font-size="16" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">algebra</text>
+<rect x="211" y="376" width="100" height="32" fill="#0d182e"/>
+<text x="261.0" y="397" font-size="14" text-anchor="middle" fill="#7897cf" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">AGENTS.md</text>
+<rect x="760" y="376" width="136" height="32" fill="#0d182e"/>
+<text x="828.0" y="397" font-size="14" text-anchor="middle" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">CONTEXT.md</text>
+<rect x="160" y="452" width="780" height="40" fill="#192748"/>
+<text x="172" y="478" font-size="16" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">ml-intro</text>
+<rect x="261" y="456" width="100" height="32" fill="#0d182e"/>
+<text x="311.0" y="477" font-size="14" text-anchor="middle" fill="#7897cf" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">AGENTS.md</text>
+<rect x="800" y="456" width="136" height="32" fill="#0d182e"/>
+<text x="868.0" y="477" font-size="14" text-anchor="middle" fill="#dfe4b3" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace">CONTEXT.md</text>
+<rect x="745" y="112" width="6" height="24" fill="#92a277"/>
+<path d="M748 88L758 112H738Z" fill="#92a277"/>
+<rect x="725" y="192" width="6" height="24" fill="#92a277"/>
+<path d="M728 168L738 192H718Z" fill="#92a277"/>
+<rect x="833" y="112" width="6" height="184" fill="#92a277"/>
+<path d="M836 88L846 112H826Z" fill="#92a277"/>
+<rect x="805" y="352" width="6" height="24" fill="#92a277"/>
+<path d="M808 328L818 352H798Z" fill="#92a277"/>
+<rect x="845" y="432" width="6" height="24" fill="#92a277"/>
+<path d="M848 408L858 432H838Z" fill="#92a277"/>
+<text x="860" y="158" font-size="16" fill="#7897cf" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">one-line summary</text>
+<path d="M227 216L237 192H217Z" fill="#b4883e"/>
+<rect x="224" y="168" width="6" height="24" fill="#b4883e"/>
+<path d="M241 376L251 352H231Z" fill="#b4883e"/>
+<rect x="238" y="328" width="6" height="24" fill="#b4883e"/>
+<path d="M286 456L296 432H276Z" fill="#b4883e"/>
+<rect x="283" y="408" width="6" height="24" fill="#b4883e"/>
+<rect x="87" y="88" width="6" height="12" fill="#b4883e"/>
+<rect x="57" y="97" width="177" height="6" fill="#b4883e"/>
+<path d="M231 136L241 112H221Z" fill="#b4883e"/>
+<rect x="228" y="100" width="6" height="12" fill="#b4883e"/>
+<rect x="57" y="100" width="6" height="160" fill="#b4883e"/>
+<rect x="57" y="257" width="167" height="6" fill="#b4883e"/>
+<path d="M221 296L231 272H211Z" fill="#b4883e"/>
+<rect x="218" y="260" width="6" height="12" fill="#b4883e"/>
+<text x="40" y="544" font-size="16" fill="#7897cf" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">rules inherit, native</text>
+<g shape-rendering="crispEdges">
+<path d="M828 532h4v4h-4zM832 532h4v4h-4zM836 532h4v4h-4zM840 532h4v4h-4zM844 532h4v4h-4zM848 532h4v4h-4zM852 532h4v4h-4zM856 532h4v4h-4zM860 532h4v4h-4zM864 532h4v4h-4zM868 532h4v4h-4zM872 532h4v4h-4zM876 532h4v4h-4zM880 532h4v4h-4zM884 532h4v4h-4zM888 532h4v4h-4zM892 532h4v4h-4zM896 532h4v4h-4zM900 532h4v4h-4zM904 532h4v4h-4zM828 536h4v4h-4zM832 536h4v4h-4zM840 536h4v4h-4zM844 536h4v4h-4zM852 536h4v4h-4zM856 536h4v4h-4zM864 536h4v4h-4zM868 536h4v4h-4zM872 536h4v4h-4zM876 536h4v4h-4zM880 536h4v4h-4zM884 536h4v4h-4zM888 536h4v4h-4zM892 536h4v4h-4zM896 536h4v4h-4zM900 536h4v4h-4zM904 536h4v4h-4zM828 540h4v4h-4zM832 540h4v4h-4zM836 540h4v4h-4zM840 540h4v4h-4zM844 540h4v4h-4zM848 540h4v4h-4zM852 540h4v4h-4zM856 540h4v4h-4zM860 540h4v4h-4zM864 540h4v4h-4zM868 540h4v4h-4zM872 540h4v4h-4zM876 540h4v4h-4zM880 540h4v4h-4zM884 540h4v4h-4zM888 540h4v4h-4zM892 540h4v4h-4zM896 540h4v4h-4zM900 540h4v4h-4zM904 540h4v4h-4zM828 544h4v4h-4zM904 544h4v4h-4zM828 548h4v4h-4zM904 548h4v4h-4zM828 552h4v4h-4zM904 552h4v4h-4zM828 556h4v4h-4zM904 556h4v4h-4zM828 560h4v4h-4zM904 560h4v4h-4zM828 564h4v4h-4zM904 564h4v4h-4zM828 568h4v4h-4zM904 568h4v4h-4zM828 572h4v4h-4zM904 572h4v4h-4zM828 576h4v4h-4zM904 576h4v4h-4zM828 580h4v4h-4zM904 580h4v4h-4zM828 584h4v4h-4zM832 584h4v4h-4zM836 584h4v4h-4zM840 584h4v4h-4zM844 584h4v4h-4zM848 584h4v4h-4zM852 584h4v4h-4zM856 584h4v4h-4zM860 584h4v4h-4zM864 584h4v4h-4zM868 584h4v4h-4zM872 584h4v4h-4zM876 584h4v4h-4zM880 584h4v4h-4zM884 584h4v4h-4zM888 584h4v4h-4zM892 584h4v4h-4zM896 584h4v4h-4zM900 584h4v4h-4zM904 584h4v4h-4z" fill="#dfe4b3"/>
+<path d="M836 536h4v4h-4zM848 536h4v4h-4zM860 536h4v4h-4zM840 552h4v4h-4zM844 552h4v4h-4zM864 552h4v4h-4zM868 552h4v4h-4zM872 552h4v4h-4zM844 556h4v4h-4zM848 556h4v4h-4zM864 556h4v4h-4zM868 556h4v4h-4zM872 556h4v4h-4zM848 560h4v4h-4zM852 560h4v4h-4zM864 560h4v4h-4zM868 560h4v4h-4zM872 560h4v4h-4zM844 564h4v4h-4zM848 564h4v4h-4zM864 564h4v4h-4zM868 564h4v4h-4zM872 564h4v4h-4zM840 568h4v4h-4zM844 568h4v4h-4zM864 568h4v4h-4zM868 568h4v4h-4zM872 568h4v4h-4z" fill="#0d182e"/>
+<path d="M832 544h4v4h-4zM836 544h4v4h-4zM840 544h4v4h-4zM844 544h4v4h-4zM848 544h4v4h-4zM852 544h4v4h-4zM856 544h4v4h-4zM860 544h4v4h-4zM864 544h4v4h-4zM868 544h4v4h-4zM872 544h4v4h-4zM876 544h4v4h-4zM880 544h4v4h-4zM884 544h4v4h-4zM888 544h4v4h-4zM892 544h4v4h-4zM896 544h4v4h-4zM900 544h4v4h-4zM832 548h4v4h-4zM836 548h4v4h-4zM840 548h4v4h-4zM844 548h4v4h-4zM848 548h4v4h-4zM852 548h4v4h-4zM856 548h4v4h-4zM860 548h4v4h-4zM864 548h4v4h-4zM868 548h4v4h-4zM872 548h4v4h-4zM876 548h4v4h-4zM880 548h4v4h-4zM884 548h4v4h-4zM888 548h4v4h-4zM892 548h4v4h-4zM896 548h4v4h-4zM900 548h4v4h-4zM832 552h4v4h-4zM836 552h4v4h-4zM848 552h4v4h-4zM852 552h4v4h-4zM856 552h4v4h-4zM860 552h4v4h-4zM876 552h4v4h-4zM880 552h4v4h-4zM884 552h4v4h-4zM888 552h4v4h-4zM892 552h4v4h-4zM896 552h4v4h-4zM900 552h4v4h-4zM832 556h4v4h-4zM836 556h4v4h-4zM840 556h4v4h-4zM852 556h4v4h-4zM856 556h4v4h-4zM860 556h4v4h-4zM876 556h4v4h-4zM880 556h4v4h-4zM884 556h4v4h-4zM888 556h4v4h-4zM892 556h4v4h-4zM896 556h4v4h-4zM900 556h4v4h-4zM832 560h4v4h-4zM836 560h4v4h-4zM840 560h4v4h-4zM844 560h4v4h-4zM856 560h4v4h-4zM860 560h4v4h-4zM876 560h4v4h-4zM880 560h4v4h-4zM884 560h4v4h-4zM888 560h4v4h-4zM892 560h4v4h-4zM896 560h4v4h-4zM900 560h4v4h-4zM832 564h4v4h-4zM836 564h4v4h-4zM840 564h4v4h-4zM852 564h4v4h-4zM856 564h4v4h-4zM860 564h4v4h-4zM876 564h4v4h-4zM880 564h4v4h-4zM884 564h4v4h-4zM888 564h4v4h-4zM892 564h4v4h-4zM896 564h4v4h-4zM900 564h4v4h-4zM832 568h4v4h-4zM836 568h4v4h-4zM848 568h4v4h-4zM852 568h4v4h-4zM856 568h4v4h-4zM860 568h4v4h-4zM876 568h4v4h-4zM880 568h4v4h-4zM884 568h4v4h-4zM888 568h4v4h-4zM892 568h4v4h-4zM896 568h4v4h-4zM900 568h4v4h-4zM832 572h4v4h-4zM836 572h4v4h-4zM840 572h4v4h-4zM844 572h4v4h-4zM848 572h4v4h-4zM852 572h4v4h-4zM856 572h4v4h-4zM860 572h4v4h-4zM864 572h4v4h-4zM868 572h4v4h-4zM872 572h4v4h-4zM876 572h4v4h-4zM880 572h4v4h-4zM884 572h4v4h-4zM888 572h4v4h-4zM892 572h4v4h-4zM896 572h4v4h-4zM900 572h4v4h-4zM832 576h4v4h-4zM836 576h4v4h-4zM840 576h4v4h-4zM844 576h4v4h-4zM848 576h4v4h-4zM852 576h4v4h-4zM856 576h4v4h-4zM860 576h4v4h-4zM864 576h4v4h-4zM868 576h4v4h-4zM872 576h4v4h-4zM876 576h4v4h-4zM880 576h4v4h-4zM884 576h4v4h-4zM888 576h4v4h-4zM892 576h4v4h-4zM896 576h4v4h-4zM900 576h4v4h-4zM832 580h4v4h-4zM836 580h4v4h-4zM840 580h4v4h-4zM844 580h4v4h-4zM848 580h4v4h-4zM852 580h4v4h-4zM856 580h4v4h-4zM860 580h4v4h-4zM864 580h4v4h-4zM868 580h4v4h-4zM872 580h4v4h-4zM876 580h4v4h-4zM880 580h4v4h-4zM884 580h4v4h-4zM888 580h4v4h-4zM892 580h4v4h-4zM896 580h4v4h-4zM900 580h4v4h-4z" fill="#617eb5"/>
+</g>
+<rect x="865" y="512" width="6" height="20" fill="#617eb5"/>
+<path d="M868 488L878 512H858Z" fill="#617eb5"/>
+<text x="868" y="614" font-size="16" text-anchor="middle" fill="#7897cf" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">your session ends</text>
+<g shape-rendering="crispEdges">
+<path d="M728 500h4v4h-4zM732 500h4v4h-4zM736 500h4v4h-4zM740 500h4v4h-4zM744 500h4v4h-4zM748 500h4v4h-4zM752 500h4v4h-4zM756 500h4v4h-4zM760 500h4v4h-4zM764 500h4v4h-4zM728 504h4v4h-4zM760 504h4v4h-4zM768 504h4v4h-4zM728 508h4v4h-4zM760 508h4v4h-4zM772 508h4v4h-4zM728 512h4v4h-4zM760 512h4v4h-4zM776 512h4v4h-4zM728 516h4v4h-4zM760 516h4v4h-4zM780 516h4v4h-4zM728 520h4v4h-4zM760 520h4v4h-4zM764 520h4v4h-4zM768 520h4v4h-4zM772 520h4v4h-4zM776 520h4v4h-4zM780 520h4v4h-4zM800 520h4v4h-4zM804 520h4v4h-4zM728 524h4v4h-4zM780 524h4v4h-4zM792 524h4v4h-4zM804 524h4v4h-4zM728 528h4v4h-4zM780 528h4v4h-4zM788 528h4v4h-4zM804 528h4v4h-4zM728 532h4v4h-4zM780 532h4v4h-4zM784 532h4v4h-4zM788 532h4v4h-4zM792 532h4v4h-4zM796 532h4v4h-4zM800 532h4v4h-4zM728 536h4v4h-4zM780 536h4v4h-4zM796 536h4v4h-4zM728 540h4v4h-4zM772 540h4v4h-4zM788 540h4v4h-4zM728 544h4v4h-4zM768 544h4v4h-4zM784 544h4v4h-4zM728 548h4v4h-4zM764 548h4v4h-4zM780 548h4v4h-4zM728 552h4v4h-4zM760 552h4v4h-4zM776 552h4v4h-4zM780 552h4v4h-4zM728 556h4v4h-4zM756 556h4v4h-4zM772 556h4v4h-4zM780 556h4v4h-4zM728 560h4v4h-4zM768 560h4v4h-4zM780 560h4v4h-4zM728 564h4v4h-4zM752 564h4v4h-4zM764 564h4v4h-4zM780 564h4v4h-4zM728 568h4v4h-4zM752 568h4v4h-4zM756 568h4v4h-4zM780 568h4v4h-4zM728 572h4v4h-4zM780 572h4v4h-4zM728 576h4v4h-4zM732 576h4v4h-4zM736 576h4v4h-4zM740 576h4v4h-4zM744 576h4v4h-4zM748 576h4v4h-4zM752 576h4v4h-4zM756 576h4v4h-4zM760 576h4v4h-4zM764 576h4v4h-4zM768 576h4v4h-4zM772 576h4v4h-4zM776 576h4v4h-4zM780 576h4v4h-4z" fill="#dfe4b3"/>
+<path d="M732 504h4v4h-4zM736 504h4v4h-4zM740 504h4v4h-4zM744 504h4v4h-4zM748 504h4v4h-4zM752 504h4v4h-4zM756 504h4v4h-4zM732 508h4v4h-4zM736 508h4v4h-4zM740 508h4v4h-4zM744 508h4v4h-4zM748 508h4v4h-4zM752 508h4v4h-4zM756 508h4v4h-4zM732 512h4v4h-4zM736 512h4v4h-4zM740 512h4v4h-4zM744 512h4v4h-4zM748 512h4v4h-4zM752 512h4v4h-4zM756 512h4v4h-4zM732 516h4v4h-4zM736 516h4v4h-4zM740 516h4v4h-4zM744 516h4v4h-4zM748 516h4v4h-4zM752 516h4v4h-4zM756 516h4v4h-4zM732 520h4v4h-4zM736 520h4v4h-4zM740 520h4v4h-4zM744 520h4v4h-4zM748 520h4v4h-4zM752 520h4v4h-4zM756 520h4v4h-4zM732 524h4v4h-4zM736 524h4v4h-4zM740 524h4v4h-4zM744 524h4v4h-4zM748 524h4v4h-4zM752 524h4v4h-4zM756 524h4v4h-4zM760 524h4v4h-4zM764 524h4v4h-4zM768 524h4v4h-4zM772 524h4v4h-4zM776 524h4v4h-4zM732 528h4v4h-4zM736 528h4v4h-4zM740 528h4v4h-4zM744 528h4v4h-4zM748 528h4v4h-4zM752 528h4v4h-4zM756 528h4v4h-4zM760 528h4v4h-4zM764 528h4v4h-4zM768 528h4v4h-4zM772 528h4v4h-4zM776 528h4v4h-4zM732 532h4v4h-4zM736 532h4v4h-4zM740 532h4v4h-4zM744 532h4v4h-4zM748 532h4v4h-4zM752 532h4v4h-4zM756 532h4v4h-4zM760 532h4v4h-4zM764 532h4v4h-4zM768 532h4v4h-4zM772 532h4v4h-4zM776 532h4v4h-4zM732 536h4v4h-4zM768 536h4v4h-4zM772 536h4v4h-4zM776 536h4v4h-4zM732 540h4v4h-4zM736 540h4v4h-4zM740 540h4v4h-4zM744 540h4v4h-4zM748 540h4v4h-4zM752 540h4v4h-4zM756 540h4v4h-4zM760 540h4v4h-4zM764 540h4v4h-4zM768 540h4v4h-4zM732 544h4v4h-4zM764 544h4v4h-4zM732 548h4v4h-4zM736 548h4v4h-4zM740 548h4v4h-4zM744 548h4v4h-4zM748 548h4v4h-4zM752 548h4v4h-4zM756 548h4v4h-4zM760 548h4v4h-4zM732 552h4v4h-4zM736 552h4v4h-4zM740 552h4v4h-4zM744 552h4v4h-4zM748 552h4v4h-4zM752 552h4v4h-4zM756 552h4v4h-4zM732 556h4v4h-4zM776 556h4v4h-4zM732 560h4v4h-4zM736 560h4v4h-4zM740 560h4v4h-4zM744 560h4v4h-4zM748 560h4v4h-4zM752 560h4v4h-4zM772 560h4v4h-4zM776 560h4v4h-4zM732 564h4v4h-4zM736 564h4v4h-4zM740 564h4v4h-4zM744 564h4v4h-4zM748 564h4v4h-4zM768 564h4v4h-4zM772 564h4v4h-4zM776 564h4v4h-4zM732 568h4v4h-4zM748 568h4v4h-4zM760 568h4v4h-4zM764 568h4v4h-4zM768 568h4v4h-4zM772 568h4v4h-4zM776 568h4v4h-4zM732 572h4v4h-4zM736 572h4v4h-4zM740 572h4v4h-4zM744 572h4v4h-4zM748 572h4v4h-4zM752 572h4v4h-4zM756 572h4v4h-4zM760 572h4v4h-4zM764 572h4v4h-4zM768 572h4v4h-4zM772 572h4v4h-4zM776 572h4v4h-4z" fill="#192748"/>
+<path d="M764 504h4v4h-4zM764 508h4v4h-4zM768 508h4v4h-4zM764 512h4v4h-4zM768 512h4v4h-4zM772 512h4v4h-4zM764 516h4v4h-4zM768 516h4v4h-4zM772 516h4v4h-4zM776 516h4v4h-4zM756 560h4v4h-4zM760 560h4v4h-4zM756 564h4v4h-4zM760 564h4v4h-4z" fill="#0d182e"/>
+<path d="M796 524h4v4h-4zM800 524h4v4h-4zM792 528h4v4h-4zM796 528h4v4h-4zM800 528h4v4h-4z" fill="#b4883e"/>
+<path d="M736 536h4v4h-4zM740 536h4v4h-4zM744 536h4v4h-4zM748 536h4v4h-4zM752 536h4v4h-4zM756 536h4v4h-4zM760 536h4v4h-4zM764 536h4v4h-4zM736 544h4v4h-4zM740 544h4v4h-4zM744 544h4v4h-4zM748 544h4v4h-4zM752 544h4v4h-4zM756 544h4v4h-4zM760 544h4v4h-4zM736 556h4v4h-4zM740 556h4v4h-4zM744 556h4v4h-4zM748 556h4v4h-4zM752 556h4v4h-4zM736 568h4v4h-4zM740 568h4v4h-4zM744 568h4v4h-4z" fill="#617eb5"/>
+<path d="M784 536h4v4h-4zM788 536h4v4h-4zM792 536h4v4h-4zM776 540h4v4h-4zM780 540h4v4h-4zM784 540h4v4h-4zM772 544h4v4h-4zM776 544h4v4h-4zM780 544h4v4h-4zM768 548h4v4h-4zM772 548h4v4h-4zM776 548h4v4h-4zM764 552h4v4h-4zM768 552h4v4h-4zM772 552h4v4h-4zM760 556h4v4h-4zM764 556h4v4h-4zM768 556h4v4h-4zM764 560h4v4h-4z" fill="#d4be4d"/>
+</g>
+<text x="716" y="546" font-size="16" text-anchor="end" fill="#7897cf" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">rewritten by one model call</text>
+</svg>

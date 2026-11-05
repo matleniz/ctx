@@ -1,0 +1,40 @@
+{
+  "course-notebooks": {
+    "description": "A course folder: 4 chapters x 2 Python exercise stubs (chN/exN_M.py, docstring says what to implement) and notes.md. A student works through it one session at a time.",
+    "items": ["ex1_1", "ex1_2", "notes_ch1", "ex2_1", "ex2_2", "notes_ch2", "ex3_1", "ex3_2", "ex4_1", "ex4_2", "summary"],
+    "sessions": [
+      {"n": 1, "prompt": "Implement exercise 1.1.", "expect": "implement ch1/ex1_1.py (mean)", "kind": "progress", "targets": ["ex1_1"]},
+      {"n": 2, "prompt": "Now exercise 1.2.", "expect": "implement ch1/ex1_2.py (population variance)", "kind": "progress", "targets": ["ex1_2"]},
+      {"n": 3, "prompt": "Write my chapter 1 notes in notes.md: what each exercise does and the formulas.", "expect": "chapter 1 section in notes.md (mean, variance)", "kind": "progress", "targets": ["notes_ch1"]},
+      {"n": 4, "prompt": "Implement exercise 2.1. Decision for the whole course from now on: no explicit for/while loops (use sum(), zip(), comprehensions and other builtins) and type hints on every function.", "expect": "implement ch2/ex2_1.py (normalize) loop-free with type hints; record the decision", "kind": "progress", "targets": ["ex2_1"],
+       "decision": "D1: in every exercise from now on, no explicit for/while loops (builtins and comprehensions only) and type hints on every function"},
+      {"n": 5, "prompt": "Next exercise.", "expect": "implement ch2/ex2_2.py (moving_average), loop-free with type hints (D1)", "kind": "progress", "targets": ["ex2_2"]},
+      {"n": 6, "prompt": "Before I move on to chapter 3, review what is done so far and fix anything wrong, then add chapter 2 notes to notes.md.", "expect": "notice and fix the injected bug in ch1/ex1_2.py (divides by n-1 instead of n), then chapter 2 notes", "kind": "review", "targets": ["ex1_2", "notes_ch2"],
+       "inject_before": {"file": "ch1/ex1_2.py", "mode": "overwrite", "text": "\"\"\"Exercise 1.2 - variance.\n\nImplement `variance(xs)`: the POPULATION variance (divide by n, not n-1) of a non-empty list.\nRaise ValueError on an empty list. You may reuse exercise 1.1.\n\"\"\"\n\n\ndef variance(xs):\n    if not xs:\n        raise ValueError(\"empty list\")\n    m = sum(xs) / len(xs)\n    return sum((x - m) ** 2 for x in xs) / (len(xs) - 1)\n",
+        "what": "ch1/ex1_2.py replaced by a version that divides by n-1 (sample variance) while the docstring asks for the population variance"}},
+      {"n": 7, "prompt": "Where were we and what's next?", "expect": "accurate recap (1.1, 1.2, 2.1, 2.2, notes ch1-2 done, decision D1) and next = exercise 3.1; no file change needed", "kind": "resume", "targets": []},
+      {"n": 8, "prompt": "Continue with exercise 3.1.", "expect": "implement ch3/ex3_1.py (dot) respecting D1", "kind": "progress", "targets": ["ex3_1"]},
+      {"n": 9, "prompt": "Refactor the earlier exercises so they all follow the convention we decided.", "expect": "apply D1 (no for/while loops, type hints) to ch1 exercises (and any other non-compliant one) without breaking them", "kind": "refactor", "targets": ["ex1_1", "ex1_2", "ex2_1", "ex2_2", "ex3_1"]},
+      {"n": 10, "prompt": "Write a summary of what is done and what remains at the end of notes.md.", "expect": "accurate summary: done 1.1, 1.2, 2.1, 2.2, 3.1, notes; remaining 3.2, 4.1, 4.2", "kind": "summary", "targets": ["summary"]}
+    ]
+  },
+  "small-project": {
+    "description": "A tiny Python package (tally: parse.py, stats.py, cli.py, tests/, one failing test) and a TODO.md with 6 numbered items, worked through one session at a time.",
+    "items": ["item1", "item2", "item3", "item4", "item5", "item6", "readme", "status"],
+    "sessions": [
+      {"n": 1, "prompt": "Fix the failing test.", "expect": "fix stats.total (skips the first record), TODO item 1", "kind": "progress", "targets": ["item1"]},
+      {"n": 2, "prompt": "Next item on the TODO.", "expect": "TODO item 2: stats.average with a test", "kind": "progress", "targets": ["item2"]},
+      {"n": 3, "prompt": "Next TODO item. Decision for this project: the CLI stays stdlib-only, no third-party package (no click, rich, tabulate...), whatever the feature.", "expect": "TODO item 3: --json with the json module; record the decision", "kind": "progress", "targets": ["item3"],
+       "decision": "D1: the CLI stays stdlib-only, no third-party package, whatever the feature"},
+      {"n": 4, "prompt": "Next TODO item.", "expect": "TODO item 4: parse.py skips blank and # lines, with a test", "kind": "progress", "targets": ["item4"]},
+      {"n": 5, "prompt": "Next TODO item.", "expect": "TODO item 5: --sort", "kind": "progress", "targets": ["item5"]},
+      {"n": 6, "prompt": "I pulled changes from a colleague. Check the code still does what the tests expect and fix what is broken before we continue.", "expect": "notice and fix the injected regression in tally/parse.py (int() instead of float())", "kind": "review", "targets": ["regression"],
+       "inject_before": {"file": "tally/parse.py", "mode": "replace", "old": "float(", "new": "int(",
+        "what": "tally/parse.py: the amount is parsed with int() instead of float() (tests with 2.5 fail)"}},
+      {"n": 7, "prompt": "Where are we and what's next?", "expect": "accurate recap (items 1-5 done, regression fixed, decision D1) and next = item 6 --pretty; no file change needed", "kind": "resume", "targets": []},
+      {"n": 8, "prompt": "Next TODO item.", "expect": "TODO item 6: --pretty table, stdlib only (D1: no tabulate/rich)", "kind": "progress", "targets": ["item6"]},
+      {"n": 9, "prompt": "Add a usage section to README.md that documents every CLI option that exists today.", "expect": "README usage listing exactly the options that exist (--json, --sort, --pretty if done)", "kind": "progress", "targets": ["readme"]},
+      {"n": 10, "prompt": "Final status: what is done, what remains, anything I should know. Write it in STATUS.md.", "expect": "accurate STATUS.md: done items, remaining items, decision D1, the regression that was fixed", "kind": "summary", "targets": ["status"]}
+    ]
+  }
+}

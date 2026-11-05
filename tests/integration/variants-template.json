@@ -1,0 +1,13 @@
+{
+  "_comment": "Per-folder spec: copy to <folder name>.json. 'structure' and 'state' must have about the same size (the runner prints the ratio). structure = only lists files/folders ('this folder contains...'); state = content rules: state with the file path on each line, 'decision:' lines, next step with its file. Facts must be TRUE of the folder.",
+  "structure": {
+    "summary": "This folder contains the course files: notes, exercises. Files: notes.md, exos/ex1.py, exos/ex2.py.",
+    "status": ["This folder contains notes.md and the exos/ folder.", "The exos/ folder contains ex1.py and ex2.py.", "The folder holds course material for the topic."],
+    "next": ["Look at the files listed above: notes.md, exos/ex1.py, exos/ex2.py."]
+  },
+  "state": {
+    "summary": "exos/ex1.py and exos/ex2.py are stubs; notes.md stops at chapter 3. Next: implement exos/ex1.py.",
+    "status": ["exos/ex1.py: stub returning 1, not implemented", "exos/ex2.py: stub returning 2, not implemented", "notes.md: chapter 3 notes only, no exercise write-up", "decision: <what was decided, and why>"],
+    "next": ["Implement exos/ex1.py first, then exos/ex2.py"]
+  }
+}
