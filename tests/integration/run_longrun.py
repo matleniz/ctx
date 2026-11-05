@@ -296,7 +296,7 @@ class Budget:
 
 
 def env_for(arm, home):
-    env = ab.base_env(arm == "B")
+    env = ab.base_env(arm in ("B", "S"))  # S: ctx off, the agent keeps STATE.md itself (CLAUDE.md rule)
     env["CTX_HOME"] = str(home)
     env.pop("CTX_ROOT", None)
     env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
@@ -343,6 +343,20 @@ def session(prompt, folder, arm, a, budget):
     return None, 0, "", 2, err
 
 
+STATE_RULE = """# Project state
+
+Read STATE.md first when you start. Before you finish every session, update STATE.md in this folder
+(create it if missing), at most 25 lines:
+
+## Status
+done / not done / broken, one line each, with the file path concerned
+## Next
+the next unfinished task and its file (never a re-check of done work)
+## Decisions
+every decision taken in this project and its reason, one line each; never delete one
+"""
+
+
 def run_chain(scen, arm, rep, a, spec, budget):
     sc = spec[scen]
     rid = f"{scen}-{arm}{rep}"
@@ -355,6 +369,8 @@ def run_chain(scen, arm, rep, a, spec, budget):
     od.mkdir(parents=True)
     folder.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(FIXT / scen, folder, ignore=shutil.ignore_patterns("__pycache__"))
+    if arm == "S":
+        (folder / "CLAUDE.md").write_text(STATE_RULE, encoding="utf-8")
     if arm == "A":
         p = subprocess.run([sys.executable, str(CTX_DIR / "ctx.py"), "init", str(folder)], capture_output=True,
                            text=True, env=env_for("A", a.home))
@@ -531,7 +547,7 @@ def summarize(recs, spec):
                   "continuity /9 | pickup | decisions | consistency | items done at end | convention at end | "
                   "regression fixed (s6 / end) | redo count | tests at end |",
                   "|" + "---|" * 17]
-        for arm in ("A", "B"):
+        for arm in ("A", "B", "S"):
             ar = [r for r in rs if r["arm"] == arm]
             runs = sorted({r["run"] for r in ar})
             if not runs:
