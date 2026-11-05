@@ -1,8 +1,9 @@
 # Changelog
 
-## 1.2.0 - 2026-11-05
+## Unreleased
 
-Real use showed work under containers getting lost and containers injecting noise.
+1.2.0 in preparation. Real use showed work under containers getting lost and containers injecting noise; three
+reviews then hardened and simplified the code.
 
 - A file no node takes is logged as `unrouted` (with the `ctx init` hint) instead of being dropped silently.
 - A node reports to the closest node above it that lists it, across plain folders (`tools/cli/` in its
@@ -17,6 +18,36 @@ Real use showed work under containers getting lost and containers injecting nois
 - Next names the next unfinished work, never a re-check of done work (rewriter rule).
 - Injection drops empty and placeholder sections and computed summaries; the Subfolders section is no longer
   injected twice.
+
+Security and correctness:
+
+- A node is a folder whose `CONTEXT.md` ctx wrote on this machine. A cloned or committed file with `ctx: 1` is
+  foreign: never injected nor rewritten; `ctx init` adopts it (its Notes are kept, the rest starts anew). A moved
+  node whose file is still ctx's last version stays a node. On a second machine sharing a folder, run `ctx init`.
+- The instruction filter also drops "please", policy lines starting with always/never, "before editing anything"
+  preconditions, lines addressed to the assistant and downloads piped into a shell or an interpreter.
+- An edit made while a sync waits for the model (a person, another session's agent) is never overwritten: the sync
+  is redone from the new file (`sync-conflict`). An edit made outside any session is the base as it is, Status and
+  Next included (before, ctx's last version won).
+- Secrets: `AWS_SECRET_ACCESS_KEY=`-style names, credentials in URLs, private-key blocks across lines. `~/.ctx` is
+  private (0700, files 0600); `CONTEXT.md` keeps its mode.
+- Session start no longer walks the parent's tree (3 s with a wide home before).
+- Fixes: a BOM at file start, a `## Next` heading inside Notes, `ctx sync --session` now exits 1 on failure, a
+  resumed session clears its end marker, purged sessions with pending work are logged (`session-purged`).
+
+Simpler:
+
+- Sync-light is done by code: a session that changed no file has its reports' `decision:` lines added to Decisions
+  and a `next:` line written to Next, with no model call. The `light_words` config key and the blocker-word rule are
+  gone.
+- One lock per node instead of a work queue: a second sync of a node waits for the first (`sync-busy` if the wait
+  runs out; the session is retried, not counted as failed). `~/.ctx/pending/` is no longer used.
+- A session is over at its end hook, or after 6 hours without a hook (no CLI pid tracking any more). agy, which has
+  no end hook, is synced 6 hours after its last hook or by `ctx sync`.
+- Removed: the "summary drops a key figure" retry (a second model call), `ctx log --node` and `--since` (grep the
+  log), doctor's retry/trim counters, the `external-edit` and `edit-during-sync` log lines, the recognition of hook
+  entries installed before the `CTX_HOOK=1` marker (pre-1.0), the hidden `install-hooks --emit`.
+- Benchmarks move to `bench/`.
 
 ## 1.1.0 - 2026-11-05
 

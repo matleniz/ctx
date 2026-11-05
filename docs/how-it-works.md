@@ -11,8 +11,9 @@
                  session ends       v
                  sync (detached) -> route each touched file to its nearest node
                                     |
-                                    v          the ONE model call: claude -p, no tools, no hooks,
-                                 rewrite       sees only that node's old text + its own touched files
+                                    v          the agent's own Status/Next (validated), else the ONE model
+                                 rewrite       call: claude -p, no tools, no hooks, that node's old text +
+                                               its own touched files; no file touched: sync-light, by code
                                     |
                                     v          deterministic, no model: parent "Subfolders" section
                                  bubble-up     rebuilt from the children's summaries, bottom to top,
@@ -55,6 +56,11 @@ These are best-effort protections, each covered by tests ([readme-claims.md](rea
 | Runaway size | size caps on every part and on the whole file ([reference.md](reference.md#files)) |
 
 ## Isolation
+
+The agent of the session edits its own node's `CONTEXT.md` with its usual tools (it was asked to, see "Rewriter"):
+it can read any file the session can, so what it writes is not isolated; ctx takes only its summary, Status and Next,
+through the validator, and puts back the state of any other node the session edited. The rest of this section is
+about the model rewrite, the fallback.
 
 Nothing filters the rewriter's output for sibling names; isolation is by what the rewriter is given. A rewrite of a node
 receives only: that node's old `CONTEXT.md` (summary, "Status", "Next", "Decisions"; never "Notes"), the paths touched

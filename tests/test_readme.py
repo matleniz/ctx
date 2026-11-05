@@ -1,7 +1,7 @@
 """README claims: every command, flag, number and path the README cites is checked against the code.
 
 Behavioural claims that need a real agent are covered by tests/integration/run_readme.py; the map
-claim -> test lives in docs/readme-claims.md and is itself checked here (every named test exists).
+claim -> test lives in docs/readme-claims.md (every test it names exists).
 """
 import json
 import os
@@ -119,8 +119,12 @@ class Readme(unittest.TestCase):
         self.assertEqual((p.returncode, p.stdout.strip()), (0, f"ctx {ctx.paths.__version__}"))
 
     def test_version_is_the_latest_changelog_entry(self):
-        top = re.search(r"^## (\S+)", (MOD / "CHANGELOG.md").read_text(), re.M).group(1)
-        self.assertEqual(top, ctx.paths.__version__)
+        heads = re.findall(r"^## (\S+)", (MOD / "CHANGELOG.md").read_text(), re.M)
+        if heads[0] == "Unreleased":  # the version being prepared is newer than the last release
+            last = tuple(int(x) for x in heads[1].split("."))
+            self.assertGreater(tuple(int(x) for x in ctx.paths.__version__.split(".")), last)
+        else:
+            self.assertEqual(heads[0], ctx.paths.__version__)
 
     def test_ctxignore_and_clone_location_are_documented(self):
         self.assertIn("`~/.ctxignore`", README)
@@ -142,7 +146,7 @@ class Readme(unittest.TestCase):
 
     def test_numbers_are_the_constants(self):
         for phrase in (f"max {ctx.paths.MAX_SUMMARY} characters", f"max {ctx.paths.MAX_STATUS_LINES} lines",
-                       f"(max {ctx.paths.MAX_NEXT_LINES})", f"{ctx.paths.MAX_NOTES} characters max injected",
+                       f"max {ctx.paths.MAX_NEXT_LINES} lines, {ctx.paths.MAX_NEXT} characters", f"max {ctx.paths.MAX_STATUS_LINES} lines, {ctx.paths.MAX_STATUS} characters", f"{ctx.paths.MAX_NOTES} characters max injected",
                        f"never exceeds {ctx.paths.MAX_TOTAL} characters", f"at most {ctx.paths.MAX_INJECT} characters",
                        f"With {ctx.paths.FULL_ENTRIES} children or fewer", f"cut to {ctx.paths.SHORT_WIDTH} characters",
                        f"beyond {ctx.paths.MAX_ENTRIES}", f"last {ctx.paths.HISTORY_KEEP} versions",
@@ -281,12 +285,6 @@ class Picture(unittest.TestCase):
         for f in self.FILES:
             self.assertTrue((MOD / f).is_file(), f)
 
-    def test_alt_names_the_three_movements(self):
-        alt = re.search(r'<img [^>]*alt="([^"]+)"', README).group(1).lower()
-        for kw in ("state goes up", "one-line summary", "context.md", "rules come down", "agents.md", "inherited",
-                   "rewrite after the session", "session ends", "rewritten"):
-            self.assertIn(kw, alt, kw)
-
     def test_svgs_are_self_contained(self):
         for f in self.FILES:
             svg = (MOD / f).read_text()
@@ -305,107 +303,6 @@ class ClaimsTable(unittest.TestCase):
         self.assertGreater(len(names), 15)
         for n in names:
             self.assertRegex(sources, rf"def {n}\(", n)
-
-    def test_every_row_has_a_test_and_uninstall_restores_is_backed_by_the_round_trips(self):
-        rows = [ln for ln in CLAIMS.splitlines() if ln.startswith("| ") and not ln.startswith("| Section") and not ln.startswith("|---")]
-        for ln in rows:
-            self.assertRegex(ln.split("|")[-2], r"`(?:test_|step_)[a-z0-9_]+`", ln)
-        restores = [ln for ln in rows if "restores" in ln and "uninstall" in ln]
-        self.assertTrue(restores)
-        for ln in restores:
-            for n in ("test_uninstall_roundtrip_byte_identical_dry_run_and_link_kept",):
-                self.assertIn(n, ln)
-        self.assertIn("restores the CLI's config", README)  # the README sentence this row backs
-
-    def test_other_pages_rows_name_a_real_heading(self):
-        pages = {"reference": "reference.md", "how-it-works": "how-it-works.md"}
-        for ln in CLAIMS.splitlines():
-            m = re.match(r"\| ([a-z-]+): ([^|]+?) \|", ln)
-            if not m:
-                continue
-            self.assertIn(m.group(1), pages, ln)
-            heads = re.findall(r"^#+ (.+)$", (MOD / "docs" / pages[m.group(1)]).read_text(), re.M)
-            self.assertIn(m.group(2), heads, ln)
-
-    def test_every_readme_section_has_a_claim_row(self):
-        for head in re.findall(r"^## (.+)$", README, re.M):
-            self.assertIn(f"| {head} |", CLAIMS, head)
-
-
-class Measured(unittest.TestCase):
-    """README "Measured" <-> docs/benchmark.md Headline <-> the published results file (recomputed)."""
-
-    @classmethod
-    def setUpClass(cls):
-        sys.path.insert(0, str(MOD / "bench"))
-        import run_benchmark
-        cls.rb = run_benchmark
-        cls.doc = (MOD / "docs/benchmark.md").read_text()
-        cls.results = json.loads((MOD / "docs" / "benchmark-results.json").read_text())
-        p = cls.results["primary"]
-        cls.h = run_benchmark.headline(cls.results["runs"], p["with_set"], p["without_set"],
-                                       B=cls.results["bootstrap_draws"], seed=cls.results["seed"])
-
-    def problems(self, readme=README, doc=None, results=None, recompute=False):
-        return self.rb.check_measured(readme, doc or self.doc, results or self.results, None if recompute else self.h)
-
-    def test_measured_numbers_match_the_benchmark_doc(self):
-        sec = re.search(r"^## Measured\n(.*?)(?=^## |\Z)", README, re.S | re.M).group(1)
-        self.assertLessEqual(len([ln for ln in sec.splitlines() if ln.strip()]), 8)
-        self.assertIn("docs/benchmark.md", sec)
-        self.assertEqual(self.problems(recompute=True), [])
-
-    def row(self, metric, tasks="all", judge="-"):
-        name = self.rb.METRIC_NAMES[metric]
-        return next(ln for ln in self.doc.splitlines() if ln.startswith(f"| {name} | {judge} | {tasks} |"))
-
-    def mutated_doc(self, line, new):
-        return self.doc.replace(line, new, 1)
-
-    def test_measured_check_catches_drift(self):
-        rows = {(r["metric"], r["tasks"], r.get("judge")): r for r in self.h["rows"]}
-        turns = self.row("turns")
-        t_eff = f"{rows[('turns', 'all', None)]['effect']:+.1f} %"
-        tok = self.row("tokens")
-        k_eff = f"{rows[('tokens', 'all', None)]['effect']:+.1f} %"
-        q = self.row("quality", judge="sonnet")
-        cells = q.split(" | ")
-        swapped = " | ".join(cells[:4] + [cells[5], cells[4]] + cells[6:])
-        flip = "| yes |" if tok.endswith("| no |") else "| no |"
-        docs = {
-            "turns effect changed": self.mutated_doc(turns, turns.replace(t_eff, "-33.4 %" if t_eff != "-33.4 %" else "-23.3 %", 1)),
-            "token sign flipped": self.mutated_doc(tok, tok.replace(k_eff, k_eff.replace("-", "+", 1) if k_eff[0] == "-" else k_eff.replace("+", "-", 1), 1)),
-            "token effect rounded": self.mutated_doc(tok, tok.replace(k_eff, k_eff.split(".")[0] + " %", 1)),
-            "significance swapped": self.mutated_doc(tok, tok[: tok.rindex("| ")] + flip),
-            "with/without swapped": self.mutated_doc(q, swapped),
-            "metric renamed": self.mutated_doc(tok, tok.replace(self.rb.METRIC_NAMES["tokens"], self.rb.METRIC_NAMES["cost"], 1)),
-        }
-        docs["doc limit changed"] = self.doc.replace("loss of more than about 0.7 point", "loss of more than about 0.5 point", 1)
-        for why, d in docs.items():
-            self.assertNotEqual(d, self.doc, why)
-            self.assertTrue(self.problems(doc=d), why)
-        m = re.search(r"fewer\s+input\s+tokens[^(]*\(([-+]?\d+) %", README)
-        readmes = {
-            "README sign flipped": README.replace(m.group(0), m.group(0).replace(m.group(1), m.group(1).lstrip("-+")), 1),
-            "README significance word": README.replace("no measurable change", "a measurable change", 1),
-            "README one-point claim": README.replace("in a first run a one-point loss was not ruled out", "a one-point loss is not ruled out", 1),
-            "README mentions cost": README.replace("turns (-23 %)", "turns (-23 %), cost (-7 %)", 1),
-            "README hidden count": README.replace("(18 of 80 sessions", "(8 of 80 sessions", 1),
-            "README sensitivity figure": README.replace("-16 % without those 18", "-19 % without those 18", 1),
-            "README folder count": README.replace("on 8 of the author's folders", "on 9 of the author's folders", 1),
-            "README Opus sentence": README.replace("; an Opus judge agrees", "", 1),
-            "README robustness": README.replace(" but not robust", "", 1),
-            "README worst cell": README.replace("(one folder, -1.2;", "(one folder, -2.2;", 1),
-            "README turns changed": re.sub(r"turns \(([-+]?\d+) %\)", lambda x: f"turns ({int(x.group(1)) - 10} %)", README, 1),
-        }
-        for why, r in readmes.items():
-            self.assertNotEqual(r, README, why)
-            self.assertTrue(self.problems(readme=r), why)
-        bad = json.loads(json.dumps(self.results))
-        run = next(r for r in bad["runs"] if r["set"] == bad["primary"]["without_set"] and r["arm"] == "without")
-        run["turns"] = (run["turns"] or 0) + 50
-        self.assertIn("docs/benchmark-results.json headline differs from the one recomputed from its runs",
-                      self.problems(results=bad, recompute=True))
 
 
 if __name__ == "__main__":

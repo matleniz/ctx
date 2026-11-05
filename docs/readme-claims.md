@@ -2,13 +2,13 @@
 
 Unit tests run offline (`python3 -m unittest discover -s tests`). The journey `step_*` functions of
 `tests/integration/run_readme.py` use a real `claude -p` on a throwaway test tree.
-`tests/test_readme.py` checks that every test named below exists and that every README section has a row
-(the top picture has its own `Top` row). Rows for other pages are labelled `page: section`.
+`tests/test_readme.py` checks that every test named below exists. Rows for other pages are labelled `page: section`.
 
 | Section | Claim | Test |
 |---|---|---|
-| Top | A picture (light and dark SVG, no script, no external reference) shows state going up, rules coming down, rewrite after the session; its alt text says so | `test_files_exist_and_are_referenced_by_the_picture`, `test_alt_names_the_three_movements`, `test_svgs_are_self_contained` |
-| Top | A session also receives one `parent <name>: <summary>` line (<= 300 chars, filtered), never the parent's Subfolders lines or siblings, nothing for a root node | `test_child_gets_one_parent_line_without_subfolders_or_siblings`, `test_parent_line_is_filtered_and_capped`, `test_computed_parent_summary_is_not_injected`, `test_root_node_has_no_parent_line` |
+| Top | A picture (light and dark SVG, no script, no external reference) shows state going up, rules coming down, rewrite after the session | `test_files_exist_and_are_referenced_by_the_picture`, `test_svgs_are_self_contained` |
+| Top | The agent updates Status, Next and summary itself (adopted with no model call, through the same validator); the model rewrite is the fallback | `test_state_written_by_the_agent_is_adopted_without_a_model_call`, `test_invalid_agent_state_falls_back_to_the_model`, `test_project_injection_asks_the_agent_to_write_its_state_container_does_not` |
+| Top | A session also receives its node's parent line, `parent <name>: <summary>` (<= 300 chars, filtered), never the parent's Subfolders lines or siblings, nothing for a root node | `test_child_gets_one_parent_line_without_subfolders_or_siblings`, `test_parent_line_is_filtered_and_capped`, `test_computed_parent_summary_is_not_injected`, `test_root_node_has_no_parent_line` |
 | Top | The rewriter's output is rejected (retry once) when a line describes structure; the prompt asks for state with file paths and `decision:` lines | `test_structure_lines_rejected_state_lines_kept`, `test_parse_model_output_rejects_structure_in_any_part`, `test_prompt_states_the_rules` |
 | 5 minutes | `./install.sh` exists and is executable; links `~/.local/bin/ctx`, idempotent | `test_install_block`, `test_install_hooks_and_uninstall_leave_the_configs_as_they_were` |
 | 5 minutes | `ctx install-hooks <cli>` works for claude, cursor, agy and shows a diff first | `test_clients_named_in_readme_are_supported`, `test_install_hooks_dry_run_does_not_write`, `test_install_hooks_confirmation_refused` |
@@ -17,13 +17,13 @@ Unit tests run offline (`python3 -m unittest discover -s tests`). The journey `s
 | Commands | There are 7 commands (`decline` and `hook` are internal, hidden from `--help`); the listed ones are exactly the real ones | `test_command_list_is_the_real_one` |
 | Commands | Every command and flag in the README exists in `--help` | `test_every_command_and_flag_exists` |
 | Commands | `ctx --version` prints the version | `test_version_flag_prints_the_version` |
-| Top | A node is a folder whose `CONTEXT.md` carries the `ctx: 1` header written by `ctx init` | `test_new_nodes_carry_the_marker`, `test_foreign_context_is_not_a_node_anywhere` |
+| Top | A node is a folder whose `CONTEXT.md` `ctx init` wrote on this machine (header `ctx: 1`); a cloned or committed one is not trusted | `test_new_nodes_carry_the_marker`, `test_foreign_context_is_not_a_node_anywhere`, `test_cloned_marker_file_is_not_trusted_nor_injected` |
 | 5 minutes | The hooks call `<clone>/ctx.py` by its path (keep the clone in place, update with `git pull`) | `test_ctxignore_and_clone_location_are_documented` |
 | 5 minutes | Folders matching `~/.ctxignore` are never nodes | `test_init_refuses_ignored_and_outside`, `test_ctxignore_and_clone_location_are_documented` |
 | Commands | `show` prints the count of injected characters | `test_show_reports_characters` |
 | Commands | `show --tree` lists nodes and summaries | `test_tree_lists_nodes` |
 | Commands | `undo` restores the previous version | `test_undo_restores_previous`, `step_undo` |
-| reference: Log and doctor | `log` filters the log by node, session, age, failures; `doctor` shows pending/abandoned sessions and last sync per node | `test_ctx_log_filters`, `test_doctor_shows_pending_abandoned_and_last_sync` |
+| reference: Log and doctor | `log` shows the last lines, a session or the failures; `doctor` shows pending/abandoned sessions and last sync per node | `test_ctx_log_filters`, `test_doctor_shows_pending_abandoned_and_last_sync` |
 | reference: Log and doctor | The log has one line per event, a tool counter at session end, no line per tool call | `test_session_lifecycle_is_logged_one_line_per_event_with_a_tool_counter` |
 | reference: Log and doctor | `doctor` detects caps, ghosts, orphans, failed syncs | `test_doctor_ok_then_detects`, `test_doctor_reports_failed_sync_and_ghost` |
 | 5 minutes | The commands `install.sh` suggests (`ctx init --no-absorb ~`, `ctx init <project>`) leave `ctx doctor` clean: an empty container and a node under a non-node folder are not problems (the latter is an `info:` line) | `test_suggested_commands_then_doctor_exits_0` |
@@ -33,7 +33,7 @@ Unit tests run offline (`python3 -m unittest discover -s tests`). The journey `s
 | reference: Files | `CONTEXT.md` is excluded from git | `test_git_exclude_and_clean_status`, `test_init_excludes_from_git_and_session_flow_writes_ctx_dir` |
 | reference: Files | `~/.ctx` holds log, declined, sessions, history, state; history keeps 10 versions | `test_init_excludes_from_git_and_session_flow_writes_ctx_dir`, `test_history_capped_at_10` |
 | reference: Files | Notes zone is never rewritten | `test_notes_zone_preserved_and_hidden_from_model` |
-| Uninstall | `ctx install-hooks --remove` restores the hook configs byte for byte | `test_uninstall_roundtrip_byte_identical_dry_run_and_link_kept`, `step_uninstall` |
+| Uninstall | `ctx install-hooks --remove` restores the hook configs (same JSON; byte for byte when ctx wrote their format) | `test_uninstall_roundtrip_byte_identical_dry_run_and_link_kept`, `step_uninstall` |
 | reference: Files | Hook config paths of each CLI | `test_clients_named_in_readme_are_supported` |
 | how-it-works: How ctx works | Three levels are updated after a session | `step_work_and_sync`, `test_sync_rewrites_node_and_bubbles_up` |
 | how-it-works: Isolation | A session receives its nearest node only, never a sibling; the rewriter is given no sibling file (isolation by inputs, no output filter) | `test_isolation_sibling_unchanged`, `test_injects_nearest_node`, `step_sibling_isolated`, `test_rewriter_input_is_exactly_the_session_reports_no_sibling_filter` |
@@ -59,8 +59,9 @@ Unit tests run offline (`python3 -m unittest discover -s tests`). The journey `s
 | reference: Behaviour details | A session without file changes gets a sync-light by code (decision: and next: lines), no model call | `test_decision_and_next_lines_are_applied_without_a_model_call`, `test_light_never_changes_status_or_summary`, `test_instruction_shaped_next_line_is_dropped` |
 | how-it-works: Guards | Two syncs of one node wait for each other; a lock wait that runs out is retried, not counted as a failure | `test_a_second_sync_of_a_node_waits_for_the_first`, `test_lock_wait_runs_out_busy_not_failed`, `test_failed_sync_is_replayed_from_the_session_offsets` |
 | Limits | Linux, WSL, macOS only (`fcntl`); opencode unsupported | `test_platform_limit_fcntl`, `test_clients_named_in_readme_are_supported` |
-| Measured | The headline numbers (quality, tokens, turns, time, with their 95 % CI) are those of docs/benchmark.md, measured on real folders by `bench/run_benchmark.py`; its statistics and change checks are unit-tested | `test_measured_numbers_match_the_benchmark_doc`, `test_measured_check_catches_drift`, `test_paired_difference_ci_and_cell_counts`, `test_stat_manifest_ignores_context_and_git_and_sees_changes` |
-| Measured over long chains | Over 10-session chains on two synthetic projects ctx used fewer tokens but did not improve continuity, with three weaknesses; the sentence is the one of docs/benchmark-longrun.md, measured by `bench/run_longrun.py`, whose metrics are unit-tested | `test_readme_long_run_sentence_matches_the_doc`, `test_progress_counts_the_true_next_item`, `test_no_arm_hint_left`, `test_done_and_pending_claims` |
+| Measured | The README names the versions measured and links the benchmark documents | `test_length_and_links` |
+| Privacy | `~/.ctx` is private (0700, files 0600); what the rewrite receives is filtered for secrets | `test_state_is_private_and_context_md_keeps_its_mode`, `test_secret_filtered_in_input_and_output` |
+| Privacy | `private: true` shows `(private)` in the parent instead of the summary | `test_private_not_bubbled_and_instruction_summary_filtered`, `test_private_children_skipped` |
 | License | The project is MIT-licensed (`LICENSE` file) | `test_license_is_mit_with_owner` |
 | reference: Nodes | Only files ctx wrote on this machine are nodes; any other `CONTEXT.md` is foreign: ignored, listed by `doctor` as `info:` (exit 0), never written by `doctor --fix`, and by `init` only when it carries `ctx: 1` | `test_foreign_context_is_not_a_node_anywhere`, `test_marker_less_file_in_ctx_shape_is_foreign_too` |
 | reference: Nodes | Only summary + 4 known sections are injected | `test_injection_allow_list` |

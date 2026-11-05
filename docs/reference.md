@@ -5,8 +5,8 @@ This page is the one place for files, size caps, configuration and environment.
 
 ## Files
 
-- `<folder>/CONTEXT.md`: a summary (max 300 characters) and the sections, in this order, "Status" (max 20 lines),
-  "Next" (max 5), "Decisions" (optional, absent = empty; owned by code, max 15 lines and 1000 characters),
+- `<folder>/CONTEXT.md`: a summary (max 300 characters) and the sections, in this order, "Status" (max 20 lines,
+  800 characters), "Next" (max 5 lines, 300 characters), "Decisions" (optional, absent = empty; owned by code, max 15 lines and 1000 characters),
   "Notes" (yours, never rewritten; 800 characters max injected) and "Subfolders".
   The file never exceeds 5000 characters. In a git repository it is added to `.git/info/exclude`, so it is not
   committed by accident.
@@ -63,6 +63,9 @@ with ` · decisions: N` when N active decisions exist (a count, never their text
   own folder; subfolders without a node under such a container get the "create a context?" question (never asked under
   an absorbing node). The header key is `absorb`; a header without it means true. `ctx show --tree` marks
   `[absorb:false]` nodes.
+- **Private.** `private: true` in a node's header keeps its summary and its decision count out of its parent:
+  the parent's Subfolders line shows `(private)`, a computed summary skips it, `ctx show --tree` shows `(private)`.
+  The node itself is injected and rewritten as usual.
 - **Summaries.** A node never rewritten at its own level (placeholder or `summary: auto`) shows a computed summary,
   no model call: its non-private children, most recently updated first, as `<child>: <summary>` (cut on a word boundary,
   to share the room, at least 120 characters each) joined with ` · ` while they fit in 300 characters, then `also: <names>`. A session
@@ -101,10 +104,11 @@ with ` · decisions: N` when N active decisions exist (a count, never their text
 
 ## Log and doctor
 
-`~/.ctx/log` has one line per event, `ISO-time event key=value ...`: `session-start` (session, client, cwd, node,
-characters injected), `session-end` (session, `tool_events` = number of tool hooks, `files`), `sync` (tokens,
-durations), `sync-fail` (cause), `skip`, `trimmed`, `catchup`, `bash-scan`, `hook-error`, `hook-timeout`, `rotate`.
-There is no line per tool call; lines written while syncing carry `session=`.
+`~/.ctx/log` has one line per event, `ISO-time event key=value ...`. The main events: `session-start` (session,
+client, cwd, node, characters injected), `session-end` (session, `tool_events` = number of tool hooks, `files`),
+`sync` (writer, tokens, durations), `sync-light`, `sync-fail` (cause), `sync-busy`, `sync-conflict`, `skip`,
+`unrouted`, `state-restored`, `trimmed`, `filtered`, `catchup`, `session-purged`, `bash-scan`, `hook-error`,
+`hook-timeout`, `rotate`. There is no line per tool call; lines written while syncing carry `session=`.
 
 `ctx log [-n N] [--session ID] [--fail]` prints its last lines, the failures, or a whole session (oldest first);
 grep the file for a node or a time. `ctx doctor` checks caps, ghost lines, failed and abandoned syncs, pending sessions, the last sync per node, sync-tool conflict copies and the rewriter command (foreign `CONTEXT.md` files are `info:` lines); it prints
@@ -116,36 +120,3 @@ the size of `~/.ctx`. `ctx doctor --fix` removes the state of folders gone for
 config that did not exist is deleted again, and the empty folder install created is left; a config that was `{}` comes
 back as `{}` while that backup exists, otherwise the then-empty file is deleted. Without a terminal
 the confirmation counts as "no" (nothing written): pass `--yes`.
-
-## Code layout
-
-`ctx.py` at the root of the clone is only the launcher: the installed hooks and `~/.local/bin/ctx` run it, it puts
-`src/` (found next to its own real path) on `sys.path` and calls `ctx.cli.main()`; `python3 -m ctx` does the same
-with `src/` on `PYTHONPATH`. The program is the package `src/ctx/`, standard library only. Modules, in import order
-(each imports only from those above it):
-
-- `paths.py`: constants, state dir, log, atomic writes, directory locks, hook deadline, launcher path.
-- `filters.py`: secret, instruction-shaped and structure-line filters.
-- `doc.py`: `Doc`, parse and render; history snapshots, per-node state.
-- `tree.py`: `.ctxignore`, node discovery, declined folders, the Subfolders section, bubble-up, git exclude.
-- `sessions.py`: hook collection, pending work, session liveness, catch-up.
-- `rewriter.py`: prompt, rewriter table, config, the model call, output parsing.
-- `sync.py`: node lock, rewrite, sync-light, session sync, bash scan.
-- `hooks.py`: client table, session-start injection, hook dispatch.
-- `install.py`: hook entries in the CLIs' configs (merge, review, removal).
-- `doctor.py`: the checks and fixes behind `ctx doctor`.
-- `cli.py`: commands, argument parser, log reading, `main()`.
-
-The package re-exports nothing: tests import `ctx.cli` (which loads every module) and patch a name in the module
-that uses it (`ctx.sync.write_doc`).
-
-## Tests
-
-- Unit suite, offline: `python3 -m unittest discover -s tests`.
-- Integration runners in `tests/integration/` use a real `claude` (or `cursor-agent`, `agy`) on a throwaway test tree
-  (`CTX_HOME`) and write their evidence to `$CTX_EVIDENCE_DIR` (default: a `ctx-evidence` folder in the system temp
-  dir): `run_readme.py` (the user journey), `run_core_battery.py`, `run_regressions.py`, `run_resilience.py` (longer
-  batteries; see `SUMMARY.txt` in each output folder), `run_loop_guard.py`, `run_cursor.py`, `run_agy.py`. They pass
-  `--setting-sources project,local` so only the test tree's hooks run when your own are installed.
-- Benchmarks in `bench/` (see `bench/README.md`); their pure parts: `python3 -m unittest discover -s bench`.
-- Hidden option used by the runners: `install-hooks --settings-file FILE` (with `--yes`, writes a hooks-only config to a new file).

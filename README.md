@@ -8,9 +8,10 @@
 </picture>
 
 Per-folder memory for coding agents. Each folder you choose holds a `CONTEXT.md`: the agent receives it when a
-session starts and updates it before finishing (or one model call rewrites it afterwards). Such a folder is a *node*: its
-`CONTEXT.md` carries a `ctx: 1` header line, written by `ctx init`. A folder's one-line summary is
-copied into its parent's `CONTEXT.md`, and a session also gets one `parent <name>: <summary>` line of its node's parent (never siblings). Python 3.10+ standard library, no dependency.
+session starts and updates its Status, Next and summary itself before finishing; only when it did not does one model
+call rewrite them after the session. Such a folder is a *node*: `ctx init` wrote its `CONTEXT.md` (header `ctx: 1`)
+on this machine; a cloned or committed one is not trusted. A folder's one-line summary is copied into its parent's
+`CONTEXT.md`, and a session also gets its node's parent line (never siblings). Python 3.10+ standard library only.
 
 ## 5 minutes
 
@@ -34,8 +35,8 @@ cd ~/projects/my-app && claude
 ```
 
 What you see: `ctx show` prints the context a session here receives and its size. When the session ends,
-`CONTEXT.md` in `my-app` is rewritten (its "Status" and "Next" sections); run `ctx show` to read it and `ctx undo`
-to go back one version. If something looks wrong: `ctx doctor`, then `ctx log --fail`.
+`CONTEXT.md` in `my-app` holds the new "Status" and "Next" (the agent's, or the rewrite's); run `ctx show` to read
+it and `ctx undo` to go back one version. If something looks wrong: `ctx doctor`, then `ctx log --fail`.
 
 In a folder with no node (and none above that covers it) the agent asks once whether to create one. `ctx init --no-absorb ~` makes a container
 node for your home that only covers its own folder. Folders matching a glob in `~/.ctxignore` are never nodes.
@@ -59,19 +60,18 @@ ctx --version                  print the version
 Files, size caps, config and environment: [reference](docs/reference.md). Design and failure handling:
 [how it works](docs/how-it-works.md). Which claim is tested by what: [readme-claims](docs/readme-claims.md).
 
+## Privacy
+
+- After a session without the agent's own update, one `claude -p` call (your account) receives the touched paths,
+  the last 3 assistant messages (2000 characters each), the node's `git diff --stat` and its old Status, Next and
+  Decisions, after a best-effort secret filter. Your agent's model reads `CONTEXT.md` at every session start.
+- `~/.ctx` (mode 0700) keeps session data 7 days, the last 10 versions of each `CONTEXT.md` and each node's last
+  state; `private: true` in a node's header shows `(private)` in its parent instead of its summary.
+
 ## Measured
 
-Measured once (2026-11-04) on 8 of the author's folders x 2 questions x 5 runs per arm, Haiku agent, Sonnet judge
-blind to the arm, `CONTEXT.md` hidden in the without arm (18 of 80 sessions still found it). With ctx, sessions used
-fewer input tokens incl. cache (-19 %, 95 % CI -27 to -10; -16 % without those 18) and turns (-23 %), mostly when
-resuming work; time was shorter (-17 %) but not robust. Answer quality: no measurable change (-0.1 on 0-9, CI -0.6
-to +0.5; an Opus judge agrees); in a first run a one-point loss was not ruled out. A wrong `CONTEXT.md` misled the
-agent (one folder, -1.2; -2.8 in the first run). One user, small sample, not reproducible: see docs/benchmark.md.
-
-## Measured over long chains
-
-Over 10-session chains on two synthetic projects, ctx used fewer tokens but did not improve continuity, and showed three weaknesses
-(a stale `Next` trusted on resume, user decisions dropped by rewrites, sessions without file changes not recorded): see [long-run benchmark](docs/benchmark-longrun.md).
+ctx 1.0.0 on real folders ([benchmark](docs/benchmark.md)) and 1.1.0 over 10-session chains
+([long-run benchmark](docs/benchmark-longrun.md)); 1.2.0 changes who writes the state and is being re-measured.
 
 ## Uninstall
 

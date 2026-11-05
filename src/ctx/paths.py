@@ -106,7 +106,7 @@ def real(p: str | Path) -> Path:
 
 
 def path_key(p: str | Path) -> str:
-    """Short stable key of a folder's real path (names its history, state and queue)."""
+    """Short stable key of a folder's real path (names its history and state)."""
     return hashlib.sha1(str(real(p)).encode()).hexdigest()[:16]
 
 

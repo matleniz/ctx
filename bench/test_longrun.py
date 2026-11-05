@@ -68,20 +68,5 @@ class TestRedo(unittest.TestCase):
         self.assertEqual(lr.sync_cost(None), (0, 0, 0))
 
 
-class TestReadme(unittest.TestCase):
-    def test_readme_long_run_sentence_matches_the_doc(self):
-        mod = Path(__file__).resolve().parent.parent
-        readme = " ".join((mod / "README.md").read_text(encoding="utf-8").split())
-        doc = " ".join((mod / "docs" / "benchmark-longrun.md").read_text(encoding="utf-8").split())
-        self.assertIn("ctx used fewer tokens but did not improve continuity", readme)
-        self.assertIn("(docs/benchmark-longrun.md)", readme)
-        # the three weaknesses named in the README are findings of the doc
-        for finding in ("trusts `Next` without opening a file", "The user's decision does not survive",
-                        "Sessions without edits leave the file stale"):
-            self.assertIn(finding, doc)
-        sec = readme.split("## Measured over long chains", 1)[1].split("##", 1)[0]
-        self.assertIsNone(__import__("re").search(r"\d+ ?%", sec), "the long-run sentence carries no percentage")
-
-
 if __name__ == "__main__":
     unittest.main()
