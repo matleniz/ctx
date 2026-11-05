@@ -229,16 +229,16 @@ def variant_text(original, arm_spec):
     """CONTEXT.md text = the original header/sections with summary, Status and Next replaced by the spec
     (Notes and Subfolders untouched). `original` may be empty (then a minimal node is built)."""
     sys.path.insert(0, str(CTX_DIR / "src"))
-    import ctx as c
-    d = c.parse(original or "")
+    import ctx.cli; c = ctx
+    d = c.doc.parse(original or "")
     d.meta.setdefault("summary", "")
     d.meta.setdefault("updated", "2026-01-01T00:00")
     d.meta["summary"] = " ".join(arm_spec["summary"].split())
-    for sec in c.ORDER:
+    for sec in c.paths.ORDER:
         d.sections.setdefault(sec, "")
-    d.sections[c.SEC_STATUS] = "\n".join(f"- {x}" for x in arm_spec["status"])
-    d.sections[c.SEC_NEXT] = "\n".join(f"- {x}" for x in arm_spec["next"])
-    return c.render(d)
+    d.sections[c.paths.SEC_STATUS] = "\n".join(f"- {x}" for x in arm_spec["status"])
+    d.sections[c.paths.SEC_NEXT] = "\n".join(f"- {x}" for x in arm_spec["next"])
+    return c.doc.render(d)
 
 
 def write_variant(node, original_bytes, arm_spec):
@@ -439,8 +439,8 @@ def is_declined(folder):
     if not os.environ.get("CTX_HOME"):
         os.environ.pop("CTX_HOME", None)
     sys.path.insert(0, str(CTX_DIR / "src"))
-    import ctx as ctxmod
-    return ctxmod.is_declined(Path(folder).resolve())
+    import ctx.cli; ctxmod = ctx
+    return ctxmod.tree.is_declined(Path(folder).resolve())
 
 
 def run_folder(folder, out, a):
@@ -507,8 +507,8 @@ def run_folder(folder, out, a):
 def ancestors_contexts(folder):
     """{path: bytes} of the CONTEXT.md files above the node up to the ctx base (a bubble-up may rewrite them)."""
     sys.path.insert(0, str(CTX_DIR / "src"))
-    import ctx as c
-    base, out, p = c.base(), {}, Path(folder).parent
+    import ctx.cli; c = ctx
+    base, out, p = c.paths.base(), {}, Path(folder).parent
     while True:
         f = p / "CONTEXT.md"
         if f.is_file():

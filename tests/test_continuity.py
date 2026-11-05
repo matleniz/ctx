@@ -23,7 +23,7 @@ class TestDecisions(Base):
         node = self.p(NODE)
         files = [] if light else [str(node / "a.py")]
         out = ("## Next\n- ex4 dans ex4.py\n" + "\n".join(decisions)) if light else out_with(decisions)
-        self.assertEqual(ctx.sync_node(node, files, list(msgs), Fake(out), *([True] if light else [])), "ok")
+        self.assertEqual(ctx.sync.sync_node(node, files, list(msgs), Fake(out), *([True] if light else [])), "ok")
         return self.doc(NODE).sections.get("Decisions", "")
 
     def test_added_and_removed_from_status(self):
@@ -53,7 +53,7 @@ class TestDecisions(Base):
         self.rewrite()
         fk = Fake(out_with(["decision superseded: #2 -> use sonnet for the judge"]))
         node = self.p(NODE)
-        ctx.sync_node(node, [str(node / "a.py")], ["x"], fk)
+        ctx.sync.sync_node(node, [str(node / "a.py")], ["x"], fk)
         self.assertIn("#1 - keep haiku as the rewrite model\n#2 - keep haiku for the judge", fk.calls[0][1])
         self.assertEqual(self.doc(NODE).sections["Decisions"].split("\n"), [
             "- keep haiku as the rewrite model", "- keep haiku for the judge (superseded)",
@@ -93,11 +93,11 @@ class TestDecisions(Base):
     def test_absent_section_is_empty_and_not_added(self):
         self.rewrite()
         self.assertNotIn("## Decisions", self.text(NODE))
-        self.assertTrue(ctx.valid_shape(self.doc(NODE)))
+        self.assertTrue(ctx.doc.valid_shape(self.doc(NODE)))
 
     def test_injection_order_and_parent_suffix(self):
         self.rewrite("decision: no loops", "decision: hints")
-        txt, _ = ctx.build_injection(self.p(NODE))
+        txt, _ = ctx.hooks.build_injection(self.p(NODE))
         i = [txt.index(x) for x in ("summary:", "## Decisions", "## Status", "## Next")]
         self.assertEqual(i, sorted(i))
         subs = self.doc("courses").sections["Subfolders"]
@@ -108,34 +108,34 @@ class TestDecisions(Base):
 
     def test_copied_subfolder_summary_still_caught_with_suffix(self):
         subs = "- **ml-intro/** — chapitre quatre en cours, exercice trois fini · decisions: 2"
-        self.assertEqual(ctx.copied_sub("x chapitre quatre en cours, exercice trois fini", subs),
+        self.assertEqual(ctx.rewriter.copied_sub("x chapitre quatre en cours, exercice trois fini", subs),
                          "ml-intro")
 
 
 class TestDatedInjection(Base):
     def test_bootstrapped_then_worked(self):
         node = self.p(NODE)
-        self.assertTrue(ctx.build_injection(node)[0].startswith("[ctx]"))  # never synced: no line
-        ctx.sync_node(node, [], ["looked around"], Fake())  # bootstrap: no file
-        first = ctx.build_injection(node)[0].split("\n")[0]
+        self.assertTrue(ctx.hooks.build_injection(node)[0].startswith("[ctx]"))  # never synced: no line
+        ctx.sync.sync_node(node, [], ["looked around"], Fake())  # bootstrap: no file
+        first = ctx.hooks.build_injection(node)[0].split("\n")[0]
         self.assertTrue(first.startswith("State as of "), first)
         self.assertIn("bootstrapped from a read-only look", first)
-        ctx.sync_node(node, [str(node / "a.py")], [], Fake())
-        worked = ctx.get_status(node)["worked"]
-        ctx.sync_node(node, [], ["blocked, failed"], Fake("## Next\n- x dans x.py"), True)
-        first = ctx.build_injection(node)[0].split("\n")[0]
+        ctx.sync.sync_node(node, [str(node / "a.py")], [], Fake())
+        worked = ctx.doc.get_status(node)["worked"]
+        ctx.sync.sync_node(node, [], ["blocked, failed"], Fake("## Next\n- x dans x.py"), True)
+        first = ctx.hooks.build_injection(node)[0].split("\n")[0]
         self.assertIn("written after the last session that changed files here", first)
         self.assertIn(f"State as of {worked},", first)  # the sync with files, not the light one
         self.assertTrue(first.endswith("Verify in the files before acting on Next."))
 
     def test_budget_respected_with_huge_notes(self):
         node = self.p(NODE)
-        ctx.sync_node(node, [str(node / "a.py")], [], Fake())
+        ctx.sync.sync_node(node, [str(node / "a.py")], [], Fake())
         t = (node / "CONTEXT.md").read_text().replace("## Notes\n", "## Notes\n" + "x" * 20000 + "\n")
         (node / "CONTEXT.md").write_text(t)
         with __import__("unittest").mock.patch.object(ctx.hooks, "MAX_NOTES", 30000):
-            txt = ctx.build_injection(node)[0]
-        self.assertLessEqual(len(txt), ctx.MAX_INJECT)
+            txt = ctx.hooks.build_injection(node)[0]
+        self.assertLessEqual(len(txt), ctx.paths.MAX_INJECT)
         self.assertTrue(txt.startswith("State as of "))
 
 
@@ -144,7 +144,7 @@ class TestDatedInjection(Base):
         t = (node / "CONTEXT.md").read_text().replace("(to be filled in)", "- ex3 done").replace(
             "## Notes\n", "## Decisions\n" + "- d\n" * 6000 + "## Notes\n")
         (node / "CONTEXT.md").write_text(t)
-        txt = ctx.build_injection(node)[0]
+        txt = ctx.hooks.build_injection(node)[0]
         self.assertIn("[truncated]", txt.split("## Status")[0])
         self.assertIn("## Next", txt)
         self.assertNotIn("[truncated]", txt.split("## Status")[1])
@@ -153,9 +153,9 @@ class TestDatedInjection(Base):
 class TestSyncLight(Base):
     def end_session(self, sid, msg, fk):
         node = self.p(NODE)
-        ctx.sync_node(node, [str(node / "a.py")], [], Fake())  # summary filled: no bootstrap
-        ctx.collect_stop({"session_id": sid, "cwd": str(node), "last_assistant_message": msg})
-        return ctx.sync_session(sid, fk)
+        ctx.sync.sync_node(node, [str(node / "a.py")], [], Fake())  # summary filled: no bootstrap
+        ctx.sessions.collect_stop({"session_id": sid, "cwd": str(node), "last_assistant_message": msg})
+        return ctx.sync.sync_session(sid, fk)
 
     def test_plain_report_is_skipped(self):
         fk = Fake("## Next\n- x")
@@ -199,7 +199,7 @@ class TestSyncLight(Base):
         self.end_session("s2", "blocked: no network, the download failed", Fake(out))
         after = self.doc(NODE)
         self.assertNotEqual(before.summary, "")
-        self.assertEqual(after.sections["Status"], ctx.read_doc(self.p(NODE)).sections["Status"])
+        self.assertEqual(after.sections["Status"], ctx.doc.read_doc(self.p(NODE)).sections["Status"])
         self.assertNotIn("hijacked", self.text(NODE))
         self.assertEqual(after.sections["Next"], "- ex4 dans ex4.py")
         self.assertEqual(after.sections["Decisions"], "- stdlib only")
@@ -218,16 +218,16 @@ class TestSyncLight(Base):
 class TestLiveness(Base):
     def test_live_pid_keeps_session_live_past_the_window(self):
         self.session("L", NODE, [NODE + "/a.py"], "m")
-        sd = ctx.session_dir_of("L")
-        (sd / "pid").write_text(f"{os.getpid()} {ctx.proc_start(os.getpid())}\n")
+        sd = ctx.sessions.session_dir_of("L")
+        (sd / "pid").write_text(f"{os.getpid()} {ctx.sessions.proc_start(os.getpid())}\n")
         old = time.time() - 700
         for x in [*sd.iterdir(), sd]:
             os.utime(x, (old, old))
-        self.assertTrue(ctx.session_live(sd))
-        self.assertNotIn("L", ctx.catch_up(spawn=False, skip_live=True))
+        self.assertTrue(ctx.sessions.session_live(sd))
+        self.assertNotIn("L", ctx.sessions.catch_up(spawn=False, skip_live=True))
         (sd / "pid").unlink()
         os.utime(sd, (old, old))
-        self.assertFalse(ctx.session_live(sd))  # no pid file: the 600 s window applies
+        self.assertFalse(ctx.sessions.session_live(sd))  # no pid file: the 600 s window applies
 
 
 class TestStopReportsCollection(Base):
@@ -247,22 +247,22 @@ class TestStopReportsCollection(Base):
                              stdout=subprocess.PIPE, text=True, env=dict(os.environ))
         try:
             self.assertEqual(p.stdout.readline().strip(), "hooked")
-            sd = ctx.session_dir_of("live1")
+            sd = ctx.sessions.session_dir_of("live1")
             self.assertEqual(int((sd / "pid").read_text().split()[0]), p.pid)
-            self.assertFalse(ctx.pid_dead(sd))  # was the dead `sh`: the session looked finished
-            self.assertNotIn("live1", ctx.catch_up(spawn=False, skip_live=True))
+            self.assertFalse(ctx.sessions.pid_dead(sd))  # was the dead `sh`: the session looked finished
+            self.assertNotIn("live1", ctx.sessions.catch_up(spawn=False, skip_live=True))
         finally:
             p.stdin.close()
             p.wait(10)
-        self.assertTrue(ctx.pid_dead(sd))  # the CLI gone: the session is caught up
-        self.assertIn("live1", ctx.catch_up(spawn=False, skip_live=True))
+        self.assertTrue(ctx.sessions.pid_dead(sd))  # the CLI gone: the session is caught up
+        self.assertIn("live1", ctx.sessions.catch_up(spawn=False, skip_live=True))
 
     def test_reports_reach_the_rewrite_when_stop_comes_last(self):
         node, fk = self.p(NODE), Fake()
-        ctx.collect_tool({"session_id": "s9", "cwd": str(node), "tool_name": "Edit",
+        ctx.sessions.collect_tool({"session_id": "s9", "cwd": str(node), "tool_name": "Edit",
                           "tool_input": {"file_path": str(node / "a.py")}})
-        ctx.collect_stop({"session_id": "s9", "cwd": str(node), "last_assistant_message": "did a"})
-        ctx.sync_session("s9", fk)
+        ctx.sessions.collect_stop({"session_id": "s9", "cwd": str(node), "last_assistant_message": "did a"})
+        ctx.sync.sync_session("s9", fk)
         self.assertIn("did a", fk.calls[0][1])
 
 

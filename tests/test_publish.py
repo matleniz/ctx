@@ -11,7 +11,7 @@ from pathlib import Path
 
 MOD = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(MOD / "src"))
-import ctx  # noqa: E402
+import ctx.cli  # noqa: E402
 
 PUBLISHED = ["README.md", "docs", "ctx.py", "src", "install.sh", "tests"]
 PROGRAM = [MOD / "ctx.py", *sorted((MOD / "src" / "ctx").glob("*.py"))]
@@ -41,11 +41,11 @@ def lines_of(f):
 class TestPublishSafety(unittest.TestCase):
     def test_no_secret_like_literal(self):
         # the tokens are assembled here, the scan itself must not hold any
-        self.assertTrue(ctx.redact("x " + "ghp_" + "A" * 36)[1], "scan patterns are the filter's own")
+        self.assertTrue(ctx.filters.redact("x " + "ghp_" + "A" * 36)[1], "scan patterns are the filter's own")
         hits = []
         for f in published_files():
             for n, line in enumerate(lines_of(f), 1):
-                if ctx.redact(line)[1]:
+                if ctx.filters.redact(line)[1]:
                     hits.append(f"{f.relative_to(MOD)}:{n}")
         self.assertEqual(hits, [], "secret-like literal(s) found")
 

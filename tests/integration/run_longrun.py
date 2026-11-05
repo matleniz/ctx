@@ -11,7 +11,7 @@ in arm A the CONTEXT.md after the sync, the rewrite tokens (from the test-home l
 of its Status lines against the harness ground truth. Then (step `judge`) a blind Sonnet judge per session scores
 continuity 0-3 on three criteria. Step `summary` writes OUT/SUMMARY.md.
 
-Usage (hooks file from `python3 ctx.py install-hooks claude --emit FILE`):
+Usage (hooks file from `python3 ctx.py install-hooks claude --settings-file FILE --yes`):
   python3 tests/integration/run_longrun.py run --home /tmp/ctx-long/home --hooks /tmp/ctx-long/hooks.json \
       --out /tmp/ctx-long/out [--scenarios course-notebooks,small-project] [--arms A,B] [--reps 3] [--sessions 10]
   python3 tests/integration/run_longrun.py judge --home /tmp/ctx-long/home --out /tmp/ctx-long/out
@@ -126,14 +126,14 @@ NEXT_ORDER = {"course-notebooks": [i for i in ORDER["course-notebooks"] if i.sta
 
 def sections(text):
     sys.path.insert(0, str(CTX_DIR / "src"))
-    import ctx as c
-    d = c.parse(text or "")
-    return d.sections.get(c.SEC_STATUS, ""), d.sections.get(c.SEC_NEXT, ""), len((text or "").encode())
+    import ctx.cli; c = ctx
+    d = c.doc.parse(text or "")
+    return d.sections.get(c.paths.SEC_STATUS, ""), d.sections.get(c.paths.SEC_NEXT, ""), len((text or "").encode())
 
 
 def sections_decisions(text):
-    import ctx as c
-    return c.parse(text or "").sections.get("Decisions", "")
+    import ctx.cli; c = ctx
+    return c.doc.parse(text or "").sections.get("Decisions", "")
 
 
 def classify_line(scen, line, items, decided):
@@ -640,7 +640,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
     r.add_argument("--home", required=True, help="temporary home (CTX_HOME); runs live in HOME/runs/")
-    r.add_argument("--hooks", required=True, help="hooks-only settings from `ctx.py install-hooks claude --emit`")
+    r.add_argument("--hooks", required=True, help="hooks-only settings from `ctx.py install-hooks claude --settings-file FILE --yes`")
     r.add_argument("--out", required=True)
     r.add_argument("--scenarios", default="course-notebooks,small-project")
     r.add_argument("--arms", default="A,B")

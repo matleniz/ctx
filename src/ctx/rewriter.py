@@ -11,21 +11,18 @@ from typing import NamedTuple
 
 from .paths import (
     DEFAULT_SUMMARY, DIFF_MAX, MAX_NEXT, MAX_NEXT_LINES, MAX_STATUS, MAX_STATUS_LINES, MAX_SUMMARY,
-    MODEL_TIMEOUT, SEC_NEXT, SEC_STATUS, clean, log, state_dir,
+    MODEL_TIMEOUT, SEC_NEXT, SEC_STATUS, clean, clip, log, state_dir,
 )
 from .filters import filter_lines, instruction_shaped, redact, structure_line
 
 
-# config keys and the figures rule
+# config keys
 CONFIG_KEYS = ("rewriter", "model", "light_words")
 # a session that changed no file still gets a reduced rewrite (sync-light) when a report holds one
 LIGHT_WORDS = "blocked,failed,cannot,bloqué,échec,impossible,refused"  # two hits needed
 NEXT_RE = re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:next|prochaine étape)[ \t]*:", re.I | re.M)
 DECISION_RE = re.compile(r"^[ \t]*(?:[-*][ \t]*)?d[eé]cision(?: superseded)?[ \t]*:.*$",
                          re.I | re.M)
-# a Status line with both is a measurable result the summary must keep (dropped_figure)
-METRIC_WORD_RE = re.compile(r"\b(loss|score|rmse|mse|accuracy|f1|version)\b|%", re.I)
-NUMBER_RE = re.compile(r"(?<![\w./-])\d+(?:[.,]\d+)?(?![\w/-])")
 
 # rewriter
 SYSTEM_PROMPT = """You maintain a short state file for a project folder, used to resume work later.
@@ -245,18 +242,9 @@ def trim_section(body: str, max_lines: int, max_chars: int) -> str:
             break
         out.append(line)
     if not out:
-        out = [trim_summary_to(body.split("\n")[0], max_chars)]
+        out = [clip(body.split("\n")[0], max_chars)]
     return "\n".join(out).strip()
 
-
-def trim_summary_to(text: str, cap: int) -> str:
-    """`text` cut at a word boundary to at most `cap` characters, ending with an ellipsis."""
-    if len(text) <= cap:
-        return text
-    cut = text[:cap - 1]
-    if " " in cut:
-        cut = cut[:cut.rindex(" ")]
-    return cut.rstrip(" ,;:.-") + "…"
 
 
 class ModelOutput(NamedTuple):
@@ -270,12 +258,11 @@ class ModelOutput(NamedTuple):
 
 
 def parse_model_output(text: str, subs: str = "", trims: list[str] | None = None,
-                       figures: bool = True, light: bool = False) -> ModelOutput:
+                       light: bool = False) -> ModelOutput:
     """Validate and clean the model's answer, or raise ValueError.
 
     Applies redaction and the instruction filter. Over-long summary/sections are trimmed to the caps
-    (not rejected); each trim is appended to `trims` if given. With `figures` (first attempt
-    only), a digit-free summary is rejected when a Status line holds a metric (dropped_figure).
+    (not rejected); each trim is appended to `trims` if given.
     """
     summary, parts = split_model_output(text, light)
     decisions, filtered = filter_lines("\n".join(x.strip() for x in DECISION_RE.findall(text)))
@@ -296,9 +283,6 @@ def parse_model_output(text: str, subs: str = "", trims: list[str] | None = None
     decisions = tuple(x for x in decisions.split("\n") if x)
     if light:
         return ModelOutput("", "", parts[SEC_NEXT], filtered, decisions)
-    lost = dropped_figure(summary, parts[SEC_STATUS]) if figures else None
-    if lost:
-        raise ValueError(f"the summary drops the key figure recorded in Status: {lost[:60]}")
     body = "\n".join([summary, *parts.values()])
     hit = copied_sub(body, subs)
     if hit:
@@ -306,13 +290,6 @@ def parse_model_output(text: str, subs: str = "", trims: list[str] | None = None
                          "(that state belongs to the subfolder, not here)")
     return ModelOutput(summary, parts[SEC_STATUS], parts[SEC_NEXT], filtered, decisions)
 
-
-def dropped_figure(summary: str, status: str) -> str | None:
-    """The first Status line holding a metric (number + metric word) if the summary has no digit."""
-    if re.search(r"\d", summary):
-        return None
-    return next((line for line in status.split("\n")
-                 if METRIC_WORD_RE.search(line) and NUMBER_RE.search(line)), None)
 
 
 def split_model_output(text: str, light: bool = False) -> tuple[str, dict[str, str]]:
@@ -341,7 +318,7 @@ def check_summary(summary: str, trims: list[str] | None) -> str:
         raise ValueError("placeholder summary")
     if len(summary) > MAX_SUMMARY:
         before = len(summary)
-        summary = trim_summary_to(summary, MAX_SUMMARY)
+        summary = clip(summary, MAX_SUMMARY)
         if trims is not None:
             trims.append(f"summary {before}->{len(summary)} chars")
     return summary

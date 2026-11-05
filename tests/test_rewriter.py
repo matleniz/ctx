@@ -11,7 +11,7 @@ from unittest import mock
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "src"))
 sys.path.insert(0, str(HERE))
-import ctx  # noqa: E402
+import ctx.cli  # noqa: E402
 import test_ctx  # noqa: E402
 
 
@@ -39,32 +39,32 @@ class Rewriter(test_ctx.Base):
                 seen.update(inp=inp, timeout=timeout)
                 return json.dumps(out), ""
         with mock.patch.object(ctx.rewriter.subprocess, "Popen", Fake):
-            res = ctx.cli_rewriter("SYS", "PROMPT", **kw)
+            res = ctx.rewriter.cli_rewriter("SYS", "PROMPT", **kw)
         return seen, res
 
     def test_config_parsing_comments_quotes_unknown_keys_and_bad_lines(self):
         self.config("# comment\nrewriter = Claude  # inline\nmodel = \"opus\"\ntimeout=30\nbogus = 1\nnot a line\n")
-        self.assertEqual(ctx.read_config(), {"rewriter": "Claude", "model": "opus"})  # `timeout` is no longer a key
-        self.assertEqual(ctx.effective_rewriter(), ("claude", "opus"))
+        self.assertEqual(ctx.rewriter.read_config(), {"rewriter": "Claude", "model": "opus"})  # `timeout` is no longer a key
+        self.assertEqual(ctx.rewriter.effective_rewriter(), ("claude", "opus"))
 
     def test_no_config_file_is_fine(self):
-        self.assertEqual(ctx.read_config(), {})
-        self.assertEqual(ctx.effective_rewriter(), ("claude", "haiku"))
-        self.assertEqual(list(ctx.REWRITERS), ["claude"])
+        self.assertEqual(ctx.rewriter.read_config(), {})
+        self.assertEqual(ctx.rewriter.effective_rewriter(), ("claude", "haiku"))
+        self.assertEqual(list(ctx.rewriter.REWRITERS), ["claude"])
 
     def test_env_ctx_rewriter_is_gone(self):
         os.environ["CTX_REWRITER"] = "cursor"
         self.addCleanup(os.environ.pop, "CTX_REWRITER", None)
-        self.assertEqual(ctx.effective_rewriter(), ("claude", "haiku"))
+        self.assertEqual(ctx.rewriter.effective_rewriter(), ("claude", "haiku"))
 
     def test_other_rewriter_names_give_a_clear_message(self):
         for name in ("cursor", "agy", "gemini"):
             self.config(f"rewriter = {name}\n")
             with self.assertRaisesRegex(RuntimeError, f"{name}.*not supported: only claude"):
-                ctx.effective_rewriter()
+                ctx.rewriter.effective_rewriter()
             with self.assertRaisesRegex(RuntimeError, "not supported"):
                 self.call()
-            self.assertIn("not supported", " ".join(ctx.config_warnings()))
+            self.assertIn("not supported", " ".join(ctx.rewriter.config_warnings()))
 
     def test_claude_row_has_the_guards_it_documents(self):
         c, _ = self.call()
@@ -77,7 +77,7 @@ class Rewriter(test_ctx.Base):
     def test_model_flag_and_fixed_timeout(self):
         c, _ = self.call()
         self.assertEqual(c["cmd"][c["cmd"].index("--model") + 1], "haiku")
-        self.assertEqual(c["timeout"], ctx.MODEL_TIMEOUT)
+        self.assertEqual(c["timeout"], ctx.paths.MODEL_TIMEOUT)
         self.config("model = opus\n")
         c, _ = self.call()
         self.assertEqual(c["cmd"][c["cmd"].index("--model") + 1], "opus")
@@ -96,7 +96,7 @@ class Rewriter(test_ctx.Base):
     def doctor(self):
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = ctx.main(["doctor"])
+            rc = ctx.cli.main(["doctor"])
         return rc, buf.getvalue()
 
     def test_doctor_shows_the_rewriter_and_checks_the_command_exists(self):
@@ -121,13 +121,13 @@ class Rewriter(test_ctx.Base):
         f = self.home / "h.json"
         buf = io.StringIO()
         with redirect_stdout(buf):
-            ctx.main(["install-hooks", "cursor", "--settings-file", str(f), "--yes"])
+            ctx.cli.main(["install-hooks", "cursor", "--settings-file", str(f), "--yes"])
         self.assertNotIn("rewriter", buf.getvalue())
         self.assertTrue(f.exists())
 
     def test_rewriter_prompt_asks_for_the_session_language(self):
-        self.assertIn("language of the session reports", ctx.SYSTEM_PROMPT)
-        self.assertIn("## Status", ctx.SYSTEM_PROMPT)
+        self.assertIn("language of the session reports", ctx.rewriter.SYSTEM_PROMPT)
+        self.assertIn("## Status", ctx.rewriter.SYSTEM_PROMPT)
 
 
 if __name__ == "__main__":

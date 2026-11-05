@@ -10,18 +10,16 @@ from pathlib import Path
 from typing import Callable
 
 from .paths import (
-    Alarm, BUBBLE_LOCK_WAIT, CONFLICT_RE, EMPTY_BODIES, FILES_MAX, MARKER, MAX_NEXT,
-    MAX_NEXT_LINES, MAX_STATUS, MAX_STATUS_LINES, PLACEHOLDERS,
-    MAX_SUMMARY, MAX_TOTAL, MODEL_TIMEOUT, MSG_KEEP, SCAN_MAX, SCAN_SKIP_DIRS, SCAN_SKIP_FILES,
-    SCAN_SLACK, SEC_DECISIONS, SEC_NEXT, SEC_NOTES, SEC_STATUS, SEC_SUBS, SESSION_BUSY,
-    SESSION_MISSING, SESSION_NOTHING, STATUS_FAIL, SYNC_FAIL, SYNC_MARGIN, SYNC_NONE, SYNC_OK,
-    SYNC_QUEUED, atomic_write, deadline, dirlock, log, path_key, read_json, real, root,
-    set_session, stamp, state_dir, text_hash,
+    Alarm, BUBBLE_LOCK_WAIT, CONFLICT_RE, EMPTY_BODIES, FILES_MAX, MARKER, MAX_NEXT, MAX_NEXT_LINES,
+    MAX_STATUS, MAX_STATUS_LINES, PLACEHOLDERS, MAX_SUMMARY, MAX_TOTAL, MODEL_TIMEOUT, MSG_KEEP,
+    SCAN_MAX, SCAN_SKIP_DIRS, SCAN_SKIP_FILES, SCAN_SLACK, SEC_DECISIONS, SEC_NEXT, SEC_NOTES,
+    SEC_STATUS, SEC_SUBS, SYNC_MARGIN, atomic_write, deadline, dirlock, log, path_key, read_json,
+    clip, real, root, set_session, stamp, state_dir,
 )
 from .filters import redact
 from .doc import Doc, get_status, is_auto, merge_decisions, numbered, parse, read_doc, render
-from .doc import set_status, write_doc, written_doc
-from .tree import accepts, bubble, build_subs, has_ctx, is_ignored, nearest_node, word_clip
+from .doc import own_version, set_status, write_doc, written_doc
+from .tree import accepts, bubble, build_subs, has_ctx, is_ignored, nearest_node
 from .sessions import Pending, session_dir_of, session_pending
 from .rewriter import (
     DECISION_RE, LIGHT_PROMPT, ModelOutput, SYSTEM_PROMPT, build_prompt, cli_rewriter, git_diffstat,
@@ -69,7 +67,7 @@ def sync_node(node: str | Path, files: list[str], msgs: list[str], rewriter: Cal
     """Queue the work then try to become the single syncer. Returns 'ok'|'queued'|'fail'|'none'."""
     node = real(node)
     enqueue(node, files, msgs, light)
-    result, conflicts = SYNC_QUEUED, 0
+    result, conflicts = "queued", 0
     while True:
         with dirlock(node, blocking=False) as got:
             if not got:
@@ -82,13 +80,13 @@ def sync_node(node: str | Path, files: list[str], msgs: list[str], rewriter: Cal
                 except BaseException:  # incl. the deadline alarm: the drained work stays queued
                     log("sync-requeue", node=node, items=len(items))
                     raise
-                if result == CONFLICT:  # the items stay queued: redo from the new file
+                if result == "conflict":  # the items stay queued: redo from the new file
                     conflicts += 1
                     if conflicts < MAX_CONFLICTS:
                         continue
                     set_status(node, False, "CONTEXT.md kept changing during the sync")
-                    result = SYNC_FAIL
-                if result == SYNC_FAIL:
+                    result = "fail"
+                if result == "fail":
                     return result  # keep the drained items queued for the next sync
                 for f in items:  # consumed only once the rewrite is settled
                     with contextlib.suppress(OSError):
@@ -96,10 +94,9 @@ def sync_node(node: str | Path, files: list[str], msgs: list[str], rewriter: Cal
         # lock released. Re-check the queue: a syncer that failed to get the lock while we were
         # draining/rewriting left its work here and relies on us (no lost wakeup).
         if not has_pending(node):
-            return result if result != SYNC_QUEUED else SYNC_NONE
+            return result if result != "queued" else "none"
 
 
-CONFLICT = "conflict"  # _rewrite_locked: CONTEXT.md's Status or Next changed during the model call
 MAX_CONFLICTS = 3  # attempts of one sync_node before the work is left for the next sync
 
 
@@ -112,12 +109,12 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
     try:
         old_text = p.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return SYNC_FAIL
+        return "fail"
     old = parse(old_text)
     diffstat = "" if light else git_diffstat(node)
     if not files and not msgs and not diffstat and not own:
         bubble(node)
-        return SYNC_NONE
+        return "none"
     prompt, redactions = rewrite_prompt(node, old, files, msgs, diffstat, light)
     subs = build_subs(node)
     trims = []
@@ -132,7 +129,7 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
         if changed is None:
             log("sync-conflict", node=node, why="Status or Next edited during the sync: redone "
                 "from the new file")
-            return CONFLICT
+            return "conflict"
         # worked: time of the last sync with touched files; False: read-only bootstraps only
         prior = get_status(node) or {}
         set_status(node, True, worked=stamp() if files else prior.get(
@@ -141,7 +138,7 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
         with contextlib.suppress(Exception):
             set_status(node, False, f"{type(e).__name__}: {e}")
         log("sync-fail", node=node, error=f"{type(e).__name__}: {e}")
-        return SYNC_FAIL
+        return "fail"
     log("sync-light" if light else "sync", node=node, files=len(files), changed=changed,
         writer=writer, tokens_in=info.get("in", 0), tokens_out=info.get("out", 0),
         model_secs=info.get("secs", 0), total_secs=round(time.time() - started, 1))
@@ -152,7 +149,7 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
         bubble(node)
     except Exception as e:  # the node is written: a parent refresh error must not redo the call
         log("bubble-error", node=node, error=f"{type(e).__name__}: {e}")
-    return SYNC_OK
+    return "ok"
 
 
 def agent_state_changed(node: str | Path, cur: Doc) -> bool:
@@ -181,11 +178,11 @@ def adopt_agent_state(node: Path, cur: Doc, msgs: list[str], subs: str,
     summary = " ".join(cur.summary.split())
     if not summary or summary in PLACEHOLDERS or summary == w.summary:
         first = lambda body: body.split("\n")[0].lstrip("-* ").strip()  # noqa: E731
-        summary = word_clip(f"{first(status)}; next: {first(nxt)}", MAX_SUMMARY)
+        summary = clip(f"{first(status)}; next: {first(nxt)}", MAX_SUMMARY)
     decisions = "\n".join(x.strip() for m in msgs for x in DECISION_RE.findall(m))
     text = f"SUMMARY: {summary}\n## Status\n{status}\n## Next\n{nxt}\n{decisions}\n"
     try:
-        return parse_model_output(text, subs, trims, figures=False)
+        return parse_model_output(text, subs, trims)
     except ValueError as e:
         trims.clear()
         log("agent-state-rejected", node=node, why=e)
@@ -240,8 +237,8 @@ def ask_model(node: Path, rewriter: Callable, prompt: str, subs: str,
                  "Keep only facts about this folder and its subfolders; "
                  "never copy a subfolder's own state lines.")
         text, info = rewriter(system, prompt + retry)
-    try:  # the figure rule rejects once only: a retry without the figure is still accepted
-        return parse_model_output(text, subs, trims, figures=False, light=light), info
+    try:
+        return parse_model_output(text, subs, trims, light=light), info
     except ValueError as second:
         log("rewrite-retry-fail", node=node, why=second)
         raise
@@ -380,15 +377,6 @@ def merged_base(node: str | Path, cur: Doc, trust_file: bool = False) -> Doc:
     return out
 
 
-def own_version(node: str | Path) -> bool:
-    """True when the node's CONTEXT.md is the last version ctx wrote (no edit since)."""
-    w = (get_status(node) or {}).get("written")
-    try:
-        text = (Path(node) / "CONTEXT.md").read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
-    return w is not None and text_hash(w) == text_hash(text)
-
 
 def _scan_descends(e):
     """The bash scan walks into this subfolder: not hidden, not a dependency dir, not a node."""
@@ -466,14 +454,14 @@ def _sync_session(sid, rewriter):
     """Body of sync_session, under the session's lock."""
     session_dir = session_dir_of(sid)
     if not session_dir.is_dir():
-        return SESSION_MISSING
+        return "nosession"
     with dirlock(session_dir, blocking=False) as got:
         if not got:
-            return SESSION_BUSY
+            return "busy"
         pending = session_pending(session_dir)
         new, msgs, cwd, state = pending.files, pending.msgs, pending.cwd, pending.state
         if not new and not msgs:
-            return SESSION_NOTHING
+            return "nothing"
         targets = route(new, cwd)
         restore_state(sid, new, targets)
         launch = nearest_node(cwd) if cwd else None
@@ -485,9 +473,9 @@ def _sync_session(sid, rewriter):
         # reflection-only session: launch folder node
         if not any(targets.values()) and launch is not None:
             targets.setdefault(launch, [])
-        failed = SYNC_FAIL in sync_targets(sid, targets, msgs, rewriter)
+        failed = "fail" in sync_targets(sid, targets, msgs, rewriter)
         record_session_result(session_dir, pending, failed, targets, scanned)
-        return SYNC_FAIL if failed else SYNC_OK
+        return "fail" if failed else "ok"
 
 
 def session_window(session_dir: Path) -> tuple[float, float]:
@@ -568,7 +556,7 @@ def sync_targets(sid: str, targets: dict, msgs: list[str], rewriter: Callable) -
             log("sync-fail", node=node, error=err)
             with contextlib.suppress(Exception):
                 set_status(node, False, err)
-            results.append(SYNC_FAIL)
+            results.append("fail")
     return results
 
 
@@ -584,7 +572,7 @@ def record_session_result(session_dir: Path, pending: Pending, failed: bool, tar
     # retries
     if failed:
         statuses = [get_status(n) or {} for n in targets]
-        failures = [s["error"] for s in statuses if s.get("status") == STATUS_FAIL]
+        failures = [s["error"] for s in statuses if s.get("status") == "fail"]
         state["error"] = failures[0] if failures else "unknown"
     else:
         state.update(offset=pending.nlines, last=pending.msgs_hash)

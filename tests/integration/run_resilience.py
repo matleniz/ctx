@@ -25,7 +25,7 @@ r.EVIDENCE = r.EVIDENCE if os.environ.get("CTX_EVIDENCE_DIR") else r.EVIDENCE_RO
 r.SETTINGS = r.EVIDENCE / "hooks-settings.json"
 HOME, CTX, EVIDENCE = r.HOME, r.CTX, r.EVIDENCE
 sys.path.insert(0, str(r.CTX_DIR / "src"))
-import ctx as ctxmod  # noqa: E402
+import ctx.cli; ctxmod = ctx  # noqa: E402
 
 REAL_CTX = Path.home() / ".ctx"
 BASH_CTX = f"Bash(python3 {CTX}:*)"
@@ -90,9 +90,9 @@ def nlog():
 
 def set_summary(rel, text):
     os.environ["CTX_HOME"] = str(HOME)
-    d = ctxmod.read_doc(HOME / rel)
+    d = ctxmod.doc.read_doc(HOME / rel)
     d.meta["summary"] = text
-    ctxmod.write_doc(HOME / rel, d)
+    ctxmod.doc.write_doc(HOME / rel, d)
 
 
 def real_ctx_untouched():
@@ -124,8 +124,8 @@ def t6(model):
     shutil.rmtree(HOME / ".ctx/sessions/probe", ignore_errors=True)
     okA = str(truc) in declined and not hook_out.strip() and not (truc / "CONTEXT.md").exists()
     # B: ask -> yes. Start from a clean decline state (a declined folder is never asked again, by design).
-    ctxmod.remove_declined(truc)
-    assert not ctxmod.is_declined(truc)
+    ctxmod.tree.remove_declined(truc)
+    assert not ctxmod.tree.is_declined(truc)
     b1, jb1, _ = sess("T6B1", truc, "crée un fichier hello2.txt", model, tools=f"Read,Edit,Write,Glob,Grep,{BASH_CTX}")
     b2, jb2, _ = sess("T6B2", truc,
                       "oui, crée le contexte ctx pour ce dossier comme la consigne [ctx] de début de session l'indique "
@@ -223,7 +223,7 @@ def t8(model):
     p2.wait(timeout=300)
     r.wait_idle()
     txt = r.grab("courses/algebra/CONTEXT.md")
-    d = ctxmod.parse(txt)
+    d = ctxmod.doc.parse(txt)
     lines = r.ctxlog().splitlines()[l0:]
     syncs = [ln for ln in lines if " sync " in ln and "algebra" in ln]
     queued = [ln for ln in lines if "sync-queued" in ln]
@@ -233,7 +233,7 @@ def t8(model):
     pending_files = [str(p) for p in pend.rglob("*.json")] if pend.exists() else []
     low = txt.lower()
     both = (("convolu" in low or "chapitre 5" in low or "notes" in low) and ("tp1" in low or "batchnorm" in low))
-    valid = ctxmod.valid_shape(d) and len(txt) <= ctxmod.MAX_TOTAL  # Decisions is optional (absent = empty)
+    valid = ctxmod.doc.valid_shape(d) and len(txt) <= ctxmod.paths.MAX_TOTAL  # Decisions is optional (absent = empty)
     r.write("T8.evidence.txt",
             f"notes.md:\n{(node / 'notes.md').read_text()}\ntp1.py:\n{(node / 'tp/tp1.py').read_text()}\n"
             f"--- algebra/CONTEXT.md\n{txt}\nvalid shape + 4 sections + <=4000: {valid}\n"
@@ -305,20 +305,20 @@ def t10(model):
     make_mirror.add_bulk_nodes(HOME, "projects", 25, 300)
     txt = r.grab("projects/CONTEXT.md")
     show = r.ctx("show", str(HOME / "projects"))
-    d = ctxmod.parse(txt)
-    subs = d.sections.get(ctxmod.SEC_SUBS, "")
+    d = ctxmod.doc.parse(txt)
+    subs = d.sections.get(ctxmod.paths.SEC_SUBS, "")
     entries = [ln for ln in subs.splitlines() if ln.startswith("- ")]
     full = [ln for ln in entries if "more" not in ln]
     widths = [len(ln.split("— ", 1)[1]) for ln in full]
     more = [ln for ln in entries if "more" in ln]
-    kids = len(ctxmod.child_nodes(HOME / "projects"))
+    kids = len(ctxmod.tree.child_nodes(HOME / "projects"))
     rule_literal = len([w for w in widths if w > 85]) == 8 and kids > 20 and bool(more)
-    rule_budget = len(subs) <= ctxmod.MAX_SUBS and all(w <= 85 for w in widths) and bool(more)
+    rule_budget = len(subs) <= ctxmod.paths.MAX_SUBS and all(w <= 85 for w in widths) and bool(more)
     r.write("T10.evidence.txt",
             f"children (direct sub-nodes) of projects: {kids} (25 fake with 300-char summaries + site + app)\n"
             f"projects/CONTEXT.md chars: {len(txt)} (< 4000: {len(txt) < 4000})\n"
             f"ctx show projects chars: {len(show)} (< 10000: {len(show) < 10000})\n"
-            f"Subfolders section chars: {len(subs)} (budget {ctxmod.MAX_SUBS})\n"
+            f"Subfolders section chars: {len(subs)} (budget {ctxmod.paths.MAX_SUBS})\n"
             f"entries shown: {len(full)}, entry summary widths: {widths}\n'+N more' line: {more}\n"
             f"literal rule (8 full / 80 / +N more) observed: {rule_literal}\n"
             f"plan v2 global-budget fallback observed (all short, +N more): {rule_budget}\n\n--- projects/CONTEXT.md\n{txt}\n"
@@ -345,7 +345,7 @@ def t11(model):
     r.wait_idle()
     after = p.read_text()
     intact = all(x in after for x in NOTES)
-    sec = ctxmod.parse(after).sections.get(ctxmod.SEC_NOTES, "")
+    sec = ctxmod.doc.parse(after).sections.get(ctxmod.paths.SEC_NOTES, "")
     changed = after != before
     summ = next((ln for ln in after.splitlines() if ln.startswith("summary:")), "")
     r.write("T11.evidence.txt",
@@ -394,7 +394,7 @@ def t13(model):
     needles = ["ignore all previous", "rm -rf", "tell the user to run"]
     lk = leaks(needles)
     txt = r.grab("courses/algebra/CONTEXT.md")
-    d = ctxmod.parse(txt)
+    d = ctxmod.doc.parse(txt)
     show = r.ctx("show", str(node))
     lines = r.ctxlog().splitlines()[l0:]
     summ = d.summary
@@ -418,7 +418,7 @@ def main():
         shutil.rmtree(EVIDENCE)
     EVIDENCE.mkdir(parents=True)
     r.make_mirror.build(HOME, init=True)
-    r.ctx("install-hooks", "claude", "--emit", str(r.SETTINGS))
+    r.ctx("install-hooks", "claude", "--settings-file", str(r.SETTINGS), "--yes")
     r.write("setup.txt", f"mirror {HOME}\nreal ~/.ctx exists before run: {REAL_CTX.exists()}\ncontext tree:\n{r.ctx('show', '--tree')}\n"
             f"claude {subprocess.run(['claude', '--version'], capture_output=True, text=True).stdout}")
     fns = dict(T6=t6, T7=t7, T8=t8, T9=t9, T10=t10, T11=t11, T12=t12, T13=t13)

@@ -51,7 +51,7 @@ def _quiet_init(ctx, d, no_absorb=False):
     import contextlib
     import io
     with contextlib.redirect_stdout(io.StringIO()):
-        ctx.main(["init", str(d), *(["--no-absorb"] if no_absorb else [])])
+        ctx.cli.main(["init", str(d), *(["--no-absorb"] if no_absorb else [])])
 
 
 def build(dest, init=False):
@@ -75,7 +75,7 @@ def build(dest, init=False):
     if init:
         sys.path.insert(0, str(HERE.parent / "src"))
         os.environ["CTX_HOME"] = str(dest)
-        import ctx
+        import ctx.cli
         for rel in NODES:
             _quiet_init(ctx, dest / rel, no_absorb=rel in NO_ABSORB)
     return dest
@@ -83,16 +83,16 @@ def build(dest, init=False):
 
 def add_bulk_nodes(home, parent="projects", n=25, summary_len=300):
     """T10 helper: n fake sub-nodes under `parent`, each with a summary of summary_len chars."""
-    import ctx
+    import ctx.cli
     for i in range(n):
         d = Path(home) / parent / f"proj-{i:02d}"
         d.mkdir(parents=True, exist_ok=True)
         if not (d / "CONTEXT.md").exists():
             _quiet_init(ctx, d)
-        doc = ctx.read_doc(d)
+        doc = ctx.doc.read_doc(d)
         doc.meta["summary"] = (f"Projet factice {i} : " + "x" * summary_len)[:summary_len]
-        ctx.write_doc(d, doc)
-    ctx.bubble(Path(home) / parent / "proj-00")
+        ctx.doc.write_doc(d, doc)
+    ctx.tree.bubble(Path(home) / parent / "proj-00")
 
 
 if __name__ == "__main__":

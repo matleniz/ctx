@@ -755,21 +755,21 @@ class Bench:
     # ---- bootstrap a fresh node
     def bootstrap(self, label):
         sys.path.insert(0, str(ab.CTX_DIR / "src"))
-        import ctx as c
+        import ctx.cli; c = ctx
         folder = self.folders[label]
         f = folder / "CONTEXT.md"
         note = self.priv / f"bootstrap.{label}.json"
         if note.exists():
             return json.loads(note.read_text())
-        doc = c.parse(f.read_text(encoding="utf-8")) if f.exists() else None
-        info = {"label": label, "needed": bool(doc is None or doc.summary in c.PLACEHOLDERS), "attempts": []}
+        doc = c.doc.parse(f.read_text(encoding="utf-8")) if f.exists() else None
+        info = {"label": label, "needed": bool(doc is None or doc.summary in c.paths.PLACEHOLDERS), "attempts": []}
         if info["needed"]:
             for _ in range(2):
                 off = ab.log_size()
                 j, secs, raw, _a = self.session(BOOT_PROMPT, folder, ab.base_env(False), self.a.model)
                 line = ab.wait_sync(str(folder), off, self.a.sync_timeout)
-                doc = c.parse(f.read_text(encoding="utf-8"))
-                ok = doc.summary not in c.PLACEHOLDERS
+                doc = c.doc.parse(f.read_text(encoding="utf-8"))
+                ok = doc.summary not in c.paths.PLACEHOLDERS
                 info["attempts"].append({"secs": secs, "sync_line": self.red(line or "NONE", label), "filled": ok,
                                          **(usage_row(j) if j else {})})
                 self.log(f"bootstrap {label}: {secs}s filled={ok} line={self.red(line or 'NONE', label)}")

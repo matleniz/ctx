@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 
 from .paths import (
-    Alarm, EMPTY_BODIES, HOOK_DEADLINE, INJECT_DISCOVER, INJECT_NODE, INJECT_NONE,
-    MAX_DECISIONS_CHARS, MAX_INJECT, MAX_NOTES, ORDER, SEC_DECISIONS, SEC_NEXT, SEC_NOTES,
-    SEC_STATUS, clean, clip, deadline, log, real, self_cmd, stamp, under,
+    Alarm, EMPTY_BODIES, HOOK_DEADLINE, MAX_DECISIONS_CHARS, MAX_INJECT, MAX_NOTES, ORDER,
+    SEC_DECISIONS, SEC_NEXT, SEC_NOTES, SEC_STATUS, clean, clip, deadline, log, real, self_cmd,
+    stamp, under,
 )
 from .filters import filter_lines, instruction_shaped, redact
 from .doc import Doc, get_status, is_auto, read_doc, render, status_line
@@ -99,18 +99,18 @@ def build_injection(cwd: str | Path, cmd: str | None = None) -> tuple[str | None
     """
     cwd = real(cwd)
     if is_ignored(cwd):
-        return None, INJECT_NONE
+        return None, "none"
     node = nearest_node(cwd)
     if node is None or not accepts(node, cwd):
         if is_declined(cwd):
-            return None, INJECT_NONE
-        return discovery_text(cwd), INJECT_DISCOVER
+            return None, "none"
+        return discovery_text(cwd), "discover"
     d = injected_doc(node)
     given_up = abandoned_under(node)
     for sid, cause in given_up:
         note = f"\nSync abandoned (session {sid}, {cause})."
         d.sections[SEC_NOTES] = d.sections.get(SEC_NOTES, "") + note
-    return format_injection(node, cwd, d, given_up, cmd or self_cmd()), INJECT_NODE
+    return format_injection(node, cwd, d, given_up, cmd or self_cmd()), "node"
 
 
 def injected_doc(node: Path) -> Doc:
@@ -273,7 +273,7 @@ def hook_session_start(event: dict, sid: str, client: str) -> dict | None:
         # anti-bounce: a concurrent running session syncs at its own SessionEnd
         catch_up(skip_live=True)
     text, kind = build_injection(cwd)
-    injected_node = nearest_node(real(cwd)) if kind == INJECT_NODE else None
+    injected_node = nearest_node(real(cwd)) if kind == "node" else None
     log("session-start", session=sid or "-", client=client, cwd=cwd, node=injected_node or kind,
         chars=len(text or ""))
     if text is None:

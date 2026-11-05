@@ -27,7 +27,7 @@ r.SETTINGS = r.EVIDENCE / "hooks-settings.json"
 HOME, CTX, EVIDENCE = r.HOME, r.CTX, r.EVIDENCE
 EMPTY = EVIDENCE / "empty-settings.json"
 sys.path.insert(0, str(r.CTX_DIR / "src"))
-import ctx as ctxmod  # noqa: E402
+import ctx.cli; ctxmod = ctx  # noqa: E402
 
 OC = Path.home() / ".opencode/bin/opencode"
 QUESTION = "où on en est et que faire ensuite ?"
@@ -113,20 +113,20 @@ def t14(model):
 # ------------------------------------------------------------------ T15
 def rewriter_inputs(pre, t1_dir):
     """Rebuild the prompt the rewriter received for T1 (same functions as ctx.py, no redaction needed)."""
-    old = ctxmod.parse(pre)
-    view = ctxmod.Doc()
+    old = ctxmod.doc.parse(pre)
+    view = ctxmod.doc.Doc()
     view.meta = {"summary": old.summary}
-    view.sections = {s: v for s, v in old.sections.items() if s in (ctxmod.SEC_STATUS, ctxmod.SEC_NEXT)}
+    view.sections = {s: v for s, v in old.sections.items() if s in (ctxmod.paths.SEC_STATUS, ctxmod.paths.SEC_NEXT)}
     node = HOME / "courses/ml-intro"
     files = [os.path.relpath(f, node) for f in (t1_dir / "touched").read_text().splitlines()]
     msgs = json.loads((t1_dir / "last.json").read_text())
-    return ctxmod.build_prompt(ctxmod.render(view), sorted(set(files)), msgs, "")
+    return ctxmod.rewriter.build_prompt(ctxmod.doc.render(view), sorted(set(files)), msgs, "")
 
 
 def judge(text):
     low = text.lower()
     try:
-        summary, where, nxt, _ = ctxmod.parse_model_output(text)
+        summary, where, nxt, _ = ctxmod.rewriter.parse_model_output(text)
         verdict = "ok"
     except ValueError as e:
         summary, where, nxt, verdict = "", "", "", f"REJECTED: {e}"
@@ -151,12 +151,12 @@ def t15(model, runs, pre, t1_dir):
     except (ValueError, KeyError):
         injected = hook
     prompt = rewriter_inputs(pre, t1_dir)
-    (EVIDENCE / "T15.rewriter-prompt.txt").write_text(ctxmod.SYSTEM_PROMPT + "\n\n=====\n" + prompt)
+    (EVIDENCE / "T15.rewriter-prompt.txt").write_text(ctxmod.rewriter.SYSTEM_PROMPT + "\n\n=====\n" + prompt)
     rows, detail = [], []
     for m in ("haiku", "sonnet"):
         for i in range(runs):
             try:
-                text, info = ctxmod.cli_rewriter(ctxmod.SYSTEM_PROMPT, prompt, model=m)
+                text, info = ctxmod.rewriter.cli_rewriter(ctxmod.rewriter.SYSTEM_PROMPT, prompt, model=m)
             except Exception as e:  # noqa: BLE001
                 rows.append((m, i, {"verdict": f"ERROR {e}", "summary_len": -1, "chapitre4": False, "ex3": False, "chars": 0}, {}))
                 continue
@@ -262,7 +262,7 @@ def main():
     r.EVIDENCE = EVIDENCE
     import make_mirror
     make_mirror.build(HOME, init=True)
-    r.ctx("install-hooks", "claude", "--emit", str(r.SETTINGS))
+    r.ctx("install-hooks", "claude", "--settings-file", str(r.SETTINGS), "--yes")
     r.write("setup.txt", f"mirror {HOME}\ncontext tree:\n{r.ctx('show', '--tree')}\nclaude {subprocess.run(['claude', '--version'], capture_output=True, text=True).stdout}")
     pre, t1_dir = play_t1_t3(a.model)
     if "T14" in only:

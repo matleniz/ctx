@@ -51,7 +51,7 @@ ctx sync [--session ID] [dir]  rewrite now what a session touched
 ctx show [--tree] [dir]        print what a session in dir receives; --tree lists all nodes
 ctx undo [dir]                 restore the previous version of a node's CONTEXT.md
 ctx doctor [--fix]             check nodes and state; --fix drops the state of gone folders
-ctx log [-n N] [--node DIR] [--session ID] [--since 2h] [--fail]   read `~/.ctx/log`
+ctx log [-n N] [--session ID] [--fail]   read `~/.ctx/log` (grep it for a node or a time)
 ctx install-hooks <cli> [--dry-run] [--yes] [--remove]   add (or remove) the ctx hooks of a CLI
 ctx --version                  print the version
 ```

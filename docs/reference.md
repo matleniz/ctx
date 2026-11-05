@@ -109,14 +109,15 @@ characters injected), `session-end` (session, `tool_events` = number of tool hoo
 durations), `sync-fail` (cause), `skip`, `trimmed`, `catchup`, `bash-scan`, `hook-error`, `hook-timeout`, `rotate`.
 There is no line per tool call; lines written while syncing carry `session=`.
 
-`ctx log [-n N] [--node DIR] [--session ID] [--since 30m|2h|1d] [--fail]` filters it (`--session` prints a whole
-session, oldest first). `ctx doctor` checks caps, ghost lines, failed and abandoned syncs, pending sessions, the last sync per node, sync-tool conflict copies and the rewriter command (foreign `CONTEXT.md` files are `info:` lines); it prints
-the size of `~/.ctx` and rewrite-retry, trimmed and sync counts. `ctx doctor --fix` removes the state of folders gone for
+`ctx log [-n N] [--session ID] [--fail]` prints its last lines, the failures, or a whole session (oldest first);
+grep the file for a node or a time. `ctx doctor` checks caps, ghost lines, failed and abandoned syncs, pending sessions, the last sync per node, sync-tool conflict copies and the rewriter command (foreign `CONTEXT.md` files are `info:` lines); it prints
+the size of `~/.ctx`. `ctx doctor --fix` removes the state of folders gone for
 30 days.
 
-`ctx install-hooks --remove` restores the pre-install bytes from the `.ctx-bak` made at install (a re-install keeps the
-first backup). A config that did not exist is deleted again, and the empty folder install created is left; a config that
-was `{}` comes back as `{}` only while that backup exists, otherwise the then-empty file is deleted. Without a terminal
+`ctx install-hooks --remove` writes the config back without the ctx hooks and deletes the `.ctx-bak` made at install
+(a re-install keeps the first backup) when the result equals it; otherwise the backup is kept and its path printed. A
+config that did not exist is deleted again, and the empty folder install created is left; a config that was `{}` comes
+back as `{}` while that backup exists, otherwise the then-empty file is deleted. Without a terminal
 the confirmation counts as "no" (nothing written): pass `--yes`.
 
 ## Code layout
@@ -128,7 +129,7 @@ with `src/` on `PYTHONPATH`. The program is the package `src/ctx/`, standard lib
 
 - `paths.py`: constants, state dir, log, atomic writes, directory locks, deadline, launcher path.
 - `filters.py`: secret, instruction-shaped and structure-line filters.
-- `doc.py`: `Doc`, parse and render; history snapshots, per-node state, log reading.
+- `doc.py`: `Doc`, parse and render; history snapshots, per-node state.
 - `tree.py`: `.ctxignore`, node discovery, declined folders, the Subfolders section, bubble-up, git exclude.
 - `sessions.py`: hook collection, pending work, session liveness, catch-up.
 - `rewriter.py`: prompt, rewriter table, config, the model call, output parsing.
@@ -136,10 +137,10 @@ with `src/` on `PYTHONPATH`. The program is the package `src/ctx/`, standard lib
 - `hooks.py`: client table, session-start injection, hook dispatch.
 - `install.py`: hook entries in the CLIs' configs (merge, review, removal).
 - `doctor.py`: the checks and fixes behind `ctx doctor`.
-- `cli.py`: commands, argument parser, `main()`.
+- `cli.py`: commands, argument parser, log reading, `main()`.
 
-Tests patch a name in the module that uses it (`ctx.sync.write_doc`), not on `ctx`: the package only re-exports
-copies.
+The package re-exports nothing: tests import `ctx.cli` (which loads every module) and patch a name in the module
+that uses it (`ctx.sync.write_doc`).
 
 ## Tests
 
@@ -149,4 +150,4 @@ copies.
   HOME, no model), `run_core_battery.py`, `run_resilience.py`, `run_usefulness.py` (longer batteries; see `SUMMARY.txt` in each
   output folder). They pass `--setting-sources project,local` so only the test tree's hooks run when your own are
   installed.
-- Hidden options used by the runners: `install-hooks --emit FILE` and `--settings-file FILE`.
+- Hidden option used by the runners: `install-hooks --settings-file FILE` (with `--yes`, writes a hooks-only config to a new file).

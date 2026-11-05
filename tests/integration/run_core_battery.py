@@ -271,7 +271,7 @@ def main():
         shutil.rmtree(EVIDENCE)
     EVIDENCE.mkdir(parents=True)
     make_mirror.build(HOME, init=True)
-    ctx("install-hooks", "claude", "--emit", str(SETTINGS))
+    ctx("install-hooks", "claude", "--settings-file", str(SETTINGS), "--yes")
     write("setup.txt", f"mirror {HOME}\ncontext tree:\n{ctx('show', '--tree')}\nclaude {subprocess.run(['claude','--version'],capture_output=True,text=True).stdout}")
     fns = {"T0": lambda: t0(a.model, a.wait0), "T1": lambda: t1(a.model), "T2": lambda: t2(a.model),
            "T3": lambda: t3(a.model), "T4": lambda: t4(a.model), "T5": lambda: t5(a.model)}

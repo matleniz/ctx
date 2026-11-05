@@ -11,11 +11,9 @@ from .paths import atomic_write, base, human_cmd, self_cmd
 from .hooks import CLIENTS
 
 
-# hook entries ctx installs carry this marker (`env CTX_HOOK=1 python3 <path>/ctx.py hook <event>`);
-# entries installed before it (`python3 <path>/ctx.py hook <event>`) are still recognised as ours
+# hook entries ctx installs carry this marker (`env CTX_HOOK=1 python3 <path>/ctx.py hook <event>`)
 HOOK_MARKER = "CTX_HOOK=1"
 HOOK_MARKER_RE = re.compile(r"(^|\s)" + re.escape(HOOK_MARKER) + r"\s.*ctx\.py'? hook ")
-LEGACY_HOOK_RE = re.compile(r"(^|[/ ])ctx\.py'? hook ")  # `'?`: a path quoted by shlex.quote
 
 
 def hooks_block(client: str = "claude") -> dict:
@@ -39,12 +37,8 @@ def hooks_block(client: str = "claude") -> dict:
 
 
 def is_ctx_hook_command(command: str) -> bool:
-    """True for a hook command ctx wrote.
-
-    Primary criterion: the HOOK_MARKER env prefix. Entries installed before the marker are
-    recognised narrowly: `ctx.py hook ` right after a path separator or a space (LEGACY_HOOK_RE).
-    """
-    return bool(HOOK_MARKER_RE.search(command) or LEGACY_HOOK_RE.search(command))
+    """True for a hook command ctx wrote: it carries the HOOK_MARKER env prefix."""
+    return bool(HOOK_MARKER_RE.search(command))
 
 
 def hook_ours(h: object) -> bool:
@@ -175,13 +169,13 @@ def remove_hooks(args: argparse.Namespace) -> int:
             continue
         print(f"== {cli}: ctx hooks in {target}")
         bak = Path(str(target) + ".ctx-bak")
-        try:  # restore the pre-install bytes when the backup is the same config minus our hooks
-            old = bak.read_text(encoding="utf-8")
-            same = ({k: v for k, v in json.loads(old).items() if k != "version"}
-                    == {k: v for k, v in new.items() if k != "version"})
+        try:  # the backup is the pre-install config: once back to it, it is no longer needed
+            same = ({k: v for k, v in json.loads(bak.read_text(encoding="utf-8")).items()
+                     if k != "version"} == {k: v for k, v in new.items() if k != "version"})
         except (OSError, ValueError, AttributeError):
             same = False
-        text = old if same else (json.dumps(new, indent=2) + "\n" if new else None)
+        # emptied: deleted, unless it existed before install (its backup is then the same `{}`)
+        text = json.dumps(new, indent=2) + "\n" if new or same else None
         r = review_write(target, cur, new, args, text, backup=False)
         exit_code = exit_code or r
         if r == 0 and not args.dry_run and bak.exists():

@@ -17,7 +17,7 @@ from unittest import mock
 HERE = Path(__file__).resolve().parent
 MOD = HERE.parent
 sys.path.insert(0, str(MOD / "src"))
-import ctx  # noqa: E402
+import ctx.cli  # noqa: E402
 
 README = (MOD / "README.md").read_text()
 CLAIMS = (MOD / "docs/readme-claims.md").read_text()
@@ -93,7 +93,7 @@ class Readme(unittest.TestCase):
     def test_launcher_and_package_entry_point_agree(self):
         self.assertEqual(subcommands(module_run("-h").stdout), subcommands())
         self.assertEqual(module_run("--version").stdout, run(["--version"], tempfile.gettempdir()).stdout)
-        self.assertEqual(module_run("--version").stdout.strip(), f"ctx {ctx.__version__}")
+        self.assertEqual(module_run("--version").stdout.strip(), f"ctx {ctx.paths.__version__}")
 
     def test_every_command_and_flag_exists(self):
         subs = subcommands()
@@ -116,37 +116,37 @@ class Readme(unittest.TestCase):
     def test_version_flag_prints_the_version(self):
         self.assertIn("ctx --version", README)
         p = run(["--version"], tempfile.gettempdir())
-        self.assertEqual((p.returncode, p.stdout.strip()), (0, f"ctx {ctx.__version__}"))
+        self.assertEqual((p.returncode, p.stdout.strip()), (0, f"ctx {ctx.paths.__version__}"))
 
     def test_version_is_the_latest_changelog_entry(self):
         top = re.search(r"^## (\S+)", (MOD / "CHANGELOG.md").read_text(), re.M).group(1)
-        self.assertEqual(top, ctx.__version__)
+        self.assertEqual(top, ctx.paths.__version__)
 
     def test_ctxignore_and_clone_location_are_documented(self):
         self.assertIn("`~/.ctxignore`", README)
         self.assertIn("Keep the clone where it is", README)
         self.assertIn("`<clone>/ctx.py`", README)
-        self.assertTrue(all(f"{ctx.self_cmd()} hook " in h["command"] for e in ctx.hooks_block().values()
+        self.assertTrue(all(f"{ctx.paths.self_cmd()} hook " in h["command"] for e in ctx.install.hooks_block().values()
                             for g in e for h in g["hooks"]))  # the hooks call this file by its path
 
     def test_clients_named_in_readme_are_supported(self):
         for cli in ("claude", "cursor", "agy"):
-            self.assertIn(cli, ctx.CLIENTS)
+            self.assertIn(cli, ctx.hooks.CLIENTS)
             self.assertEqual(run(["install-hooks", cli, "--dry-run"], tempfile.mkdtemp()).returncode, 0)
-        self.assertNotIn("opencode", ctx.CLIENTS)
+        self.assertNotIn("opencode", ctx.hooks.CLIENTS)
         self.assertIn("opencode is not supported", README)
         for cli, rel in (("claude", "~/.claude/settings.json"), ("cursor", "~/.cursor/hooks.json"),
                          ("agy", "~/.gemini/config/hooks.json")):
-            self.assertEqual("~/" + ctx.CLIENTS[cli]["file"], rel)
+            self.assertEqual("~/" + ctx.hooks.CLIENTS[cli]["file"], rel)
             self.assertIn(rel, CLIENTS_DOC)
 
     def test_numbers_are_the_constants(self):
-        for phrase in (f"max {ctx.MAX_SUMMARY} characters", f"max {ctx.MAX_STATUS_LINES} lines",
-                       f"(max {ctx.MAX_NEXT_LINES})", f"{ctx.MAX_NOTES} characters max injected",
-                       f"never exceeds {ctx.MAX_TOTAL} characters", f"at most {ctx.MAX_INJECT} characters",
-                       f"With {ctx.FULL_ENTRIES} children or fewer", f"cut to {ctx.SHORT_WIDTH} characters",
-                       f"beyond {ctx.MAX_ENTRIES}", f"last {ctx.HISTORY_KEEP} versions",
-                       f"last {ctx.LIVE_WINDOW} seconds"):
+        for phrase in (f"max {ctx.paths.MAX_SUMMARY} characters", f"max {ctx.paths.MAX_STATUS_LINES} lines",
+                       f"(max {ctx.paths.MAX_NEXT_LINES})", f"{ctx.paths.MAX_NOTES} characters max injected",
+                       f"never exceeds {ctx.paths.MAX_TOTAL} characters", f"at most {ctx.paths.MAX_INJECT} characters",
+                       f"With {ctx.paths.FULL_ENTRIES} children or fewer", f"cut to {ctx.paths.SHORT_WIDTH} characters",
+                       f"beyond {ctx.paths.MAX_ENTRIES}", f"last {ctx.paths.HISTORY_KEEP} versions",
+                       f"last {ctx.paths.LIVE_WINDOW} seconds"):
             self.assertIn(phrase, " ".join(REFERENCE.split()))
 
     def test_platform_limit_fcntl(self):
@@ -154,7 +154,7 @@ class Readme(unittest.TestCase):
         self.assertTrue(hasattr(ctx.paths, "fcntl"))  # the locks (dirlock)
 
     def test_section_names_are_the_real_ones(self):
-        for name in (ctx.SEC_STATUS, ctx.SEC_NEXT, ctx.SEC_NOTES, ctx.SEC_SUBS):
+        for name in (ctx.paths.SEC_STATUS, ctx.paths.SEC_NEXT, ctx.paths.SEC_NOTES, ctx.paths.SEC_SUBS):
             self.assertIn(f'"{name}"', REFERENCE)
 
 
@@ -196,7 +196,7 @@ class Behaviour(unittest.TestCase):
         state = {p.name for p in (self.home / ".ctx").iterdir()}
         for name in ("log", "declined", "sessions", "history", "state"):
             self.assertIn(name, state)
-        self.assertLessEqual(len(text), ctx.MAX_TOTAL)
+        self.assertLessEqual(len(text), ctx.paths.MAX_TOTAL)
         args = (self.fake / "args").read_text()  # the one model call: claude -p, no tools
         self.assertIn("-p", args)
         self.assertIn("haiku", args)
@@ -205,7 +205,7 @@ class Behaviour(unittest.TestCase):
         with mock.patch.object(ctx.rewriter.subprocess, "Popen") as m, mock.patch.dict(os.environ, {}, clear=False):
             m.return_value.communicate.return_value = (json.dumps({"result": "x", "usage": {}}), "")
             m.return_value.returncode = 0
-            ctx.cli_rewriter("sys", "prompt")
+            ctx.rewriter.cli_rewriter("sys", "prompt")
         cmd, kw = m.call_args[0][0], m.call_args[1]
         self.assertEqual(cmd[:2], ["claude", "-p"])
         self.assertEqual(cmd[cmd.index("--model") + 1], "haiku")
@@ -231,8 +231,8 @@ class Behaviour(unittest.TestCase):
             run(["init", str(d)], self.home)
         (self.home / "CONTEXT.md").write_text((self.home / "CONTEXT.md").read_text() + "x" * 20000)
         with mock.patch.dict(os.environ, {"CTX_HOME": str(self.home)}):
-            text, _ = ctx.build_injection(self.home)
-        self.assertLessEqual(len(text), ctx.MAX_INJECT)
+            text, _ = ctx.hooks.build_injection(self.home)
+        self.assertLessEqual(len(text), ctx.paths.MAX_INJECT)
 
     def test_uninstall_keeps_context_files(self):
         run(["init", str(self.home)], self.home)

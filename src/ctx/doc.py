@@ -3,14 +3,12 @@ import json
 import os
 import re
 import time
-from datetime import datetime, timedelta
 from pathlib import Path
 
 from .paths import (
-    DEFAULT_SUMMARY, FAIL_EVENTS, HISTORY_KEEP, LOG_KV, MARKER, MAX_DECISIONS,
-    MAX_DECISIONS_CHARS, ORDER, PLACEHOLDERS, PURGE_DAYS, REQUIRED, SEC_NEXT, SEC_NOTES,
-    SEC_STATUS, SEC_SUBS, STATUS_FAIL, STATUS_OK, atomic_write, clip, now, path_key, read_json,
-    real, stamp, state_dir, strip_control, text_hash,
+    DEFAULT_SUMMARY, HISTORY_KEEP, MARKER, MAX_DECISIONS, MAX_DECISIONS_CHARS, ORDER, PLACEHOLDERS,
+    PURGE_DAYS, REQUIRED, SEC_NEXT, SEC_NOTES, SEC_STATUS, SEC_SUBS, atomic_write, clip, now,
+    path_key, read_json, real, stamp, state_dir, text_hash,
 )
 
 SUPERSEDED = "(superseded)"
@@ -205,7 +203,8 @@ def save_history(node: str | Path, text: str) -> None:
 def write_doc(node: str | Path, d: Doc, snapshot: bool = True, record: bool = True) -> bool:
     """Atomic write; skip when unchanged ignoring `updated`. Returns True if written.
 
-    record=False keeps the remembered version (note_hash): an edit not synced yet stays detectable.
+    record=False keeps the remembered version (note_written): an edit not synced yet stays
+    detectable.
     """
     p = Path(node) / "CONTEXT.md"
     old = p.read_text(encoding="utf-8", errors="replace") if p.exists() else None
@@ -214,14 +213,14 @@ def write_doc(node: str | Path, d: Doc, snapshot: bool = True, record: bool = Tr
         kept = old_doc.meta.get("updated", "")
         if render(d, updated=kept) == render(old_doc, updated=kept):
             if record:  # same content: the file is ctx's version from now on
-                note_hash(node, old)
+                note_written(node, old)
             return False
     if old is not None and snapshot:
         save_history(node, old)
     text = render(d, updated=stamp())
     atomic_write(p, text)
     if record:
-        note_hash(node, text)
+        note_written(node, text)
     return True
 
 
@@ -230,7 +229,7 @@ def set_status(node: str | Path, ok: bool, err: str = "", **extra: object) -> No
     state_files = state_dir() / "state"
     state_files.mkdir(parents=True, exist_ok=True)
     s = get_status(node) or {}
-    s.update(path=str(real(node)), status=STATUS_OK if ok else STATUS_FAIL, time=now().isoformat(),
+    s.update(path=str(real(node)), status="ok" if ok else "fail", time=now().isoformat(),
              error=err, **extra)
     atomic_write(state_files / f"{path_key(node)}.json", json.dumps(s))
 
@@ -241,13 +240,10 @@ def written_doc(node: str | Path) -> "Doc | None":
     return parse(text) if text else None
 
 
-def note_hash(node: str | Path, text: str) -> None:
-    """Remember the hash of the CONTEXT.md ctx last wrote.
-
-    A different hash later means a write from outside ctx.
-    """
+def note_written(node: str | Path, text: str) -> None:
+    """Remember the CONTEXT.md text ctx last wrote (own_version compares the file with it)."""
     s = get_status(node) or {"path": str(real(node))}  # no sync result yet: none is invented
-    s["hash"] = text_hash(text)
+    s.pop("hash", None)  # state from before 1.2.0
     s["written"] = text  # the base of the next sync: an agent cannot erase Notes, header, Decisions
     (state_dir() / "state").mkdir(parents=True, exist_ok=True)
     atomic_write(state_dir() / "state" / f"{path_key(node)}.json", json.dumps(s))
@@ -277,6 +273,16 @@ def written_hashes() -> set[str]:
     return _HASHES[key]
 
 
+def own_version(node: str | Path) -> bool:
+    """True when the node's CONTEXT.md is the last version ctx wrote (no edit since)."""
+    w = (get_status(node) or {}).get("written")
+    try:
+        text = (Path(node) / "CONTEXT.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return w is not None and text_hash(w) == text_hash(text)
+
+
 def get_status(node: str | Path) -> dict | None:
     """The node's state file (last sync, hash), or None."""
     return read_json(state_dir() / "state" / f"{path_key(node)}.json", None)
@@ -288,7 +294,7 @@ def status_line(node: str | Path) -> str:
     if not s or "status" not in s:
         return "never synced"
     t = s["time"][11:16]
-    if s["status"] == STATUS_OK:
+    if s["status"] == "ok":
         return f"last sync: ok {t}"
     return f"last sync: FAILED {t} ({s.get('error', '')[:80]}), see ~/.ctx/log"
 
@@ -331,40 +337,3 @@ def orphans(unreachable: list | None = None) -> list[tuple[str, Path, str]]:
     return out
 
 
-def read_log(since: datetime | None = None) -> list[tuple[datetime, str, dict[str, str]]]:
-    """Log entries [(time, event, {k: v})] from log.1 then log.
-
-    The format is one line per event: `ISO event k=v k=v`.
-    """
-    out = []
-    for name in ("log.1", "log"):
-        f = state_dir() / name
-        for line in f.read_text(errors="replace").splitlines() if f.is_file() else []:
-            p = strip_control(line).split(" ", 2)
-            try:
-                t = datetime.fromisoformat(p[0])
-            except (ValueError, IndexError):
-                continue
-            if len(p) > 1 and (since is None or t >= since):
-                out.append((t, p[1], dict(LOG_KV.findall(p[2] if len(p) > 2 else ""))))
-    return out
-
-
-def parse_since(s: str | None) -> datetime | None:
-    """The time `s` (30m, 2h, 1d) ago, or None without `s`; exits on a bad value."""
-    m = re.fullmatch(r"(\d+)([mhd])", s or "")
-    if s and not m:
-        raise SystemExit("ctx: --since expects e.g. 30m, 2h or 1d")
-    if not m:
-        return None
-    return now() - timedelta(minutes=int(m.group(1)) * {"m": 1, "h": 60, "d": 1440}[m.group(2)])
-
-
-def _log_matches(args, node, e, kv):
-    """The log line passes the `ctx log` filters (--fail, --node, --session)."""
-    if args.fail and not FAIL_EVENTS.search(e):
-        return False
-    if node and not any(str(kv.get(k, "")).startswith(node) for k in ("node", "cwd")):
-        return False
-    sessions = (kv.get("session"), *kv.get("sessions", "").split(","))
-    return not args.session or args.session in sessions

@@ -2,16 +2,16 @@
 import argparse
 import json
 import os
+import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from .paths import (
     MARKER, PURGE_DAYS, __version__, atomic_write, base, clean, dirlock, human_cmd, log,
-    private_umask, real, root, under,
+    private_umask, real, root, state_dir, strip_control, under,
 )
-from .doc import (
-    _log_matches, history_dir, note_hash, orphans, parse_since, read_log,
-)
+from .doc import history_dir, note_written, orphans
 from .tree import (
     add_declined, all_nodes, bubble, create_node, git_info_dir, has_ctx, is_ignored, refresh_subs,
     show_tree,
@@ -112,7 +112,7 @@ def cmd_undo(args: argparse.Namespace) -> int:
             print("ctx: node is busy", file=sys.stderr)
             return 1
         atomic_write(d / "CONTEXT.md", snaps[-1].read_text())
-        note_hash(d, snaps[-1].read_text())
+        note_written(d, snaps[-1].read_text())
         snaps[-1].unlink()
         refresh_subs(d)
     bubble(d)
@@ -121,11 +121,34 @@ def cmd_undo(args: argparse.Namespace) -> int:
     return 0
 
 
+LOG_KV = re.compile(r"(\w+)=(.*?)(?= \w+=|$)")
+FAIL_EVENTS = re.compile(r"fail|error|timeout|abandon")
+
+
+def read_log() -> list[tuple[datetime, str, dict[str, str]]]:
+    """Log entries [(time, event, {k: v})] from log.1 then log (`ISO event k=v k=v` lines)."""
+    out = []
+    for name in ("log.1", "log"):
+        f = state_dir() / name
+        for line in f.read_text(errors="replace").splitlines() if f.is_file() else []:
+            p = strip_control(line).split(" ", 2)
+            try:
+                t = datetime.fromisoformat(p[0])
+            except (ValueError, IndexError):
+                continue
+            if len(p) > 1:
+                out.append((t, p[1], dict(LOG_KV.findall(p[2] if len(p) > 2 else ""))))
+    return out
+
+
 def cmd_log(args: argparse.Namespace) -> int:
-    """`ctx log`: print the log lines matching the filters."""
-    node = str(real(args.node)) if args.node else None
-    entries = [(t, e, kv) for t, e, kv in read_log(parse_since(args.since))
-               if _log_matches(args, node, e, kv)]
+    """`ctx log`: print the last log lines, the failures (--fail) or one session (--session)."""
+    def wanted(e, kv):
+        """The line passes --fail and --session."""
+        sessions = (kv.get("session"), *kv.get("sessions", "").split(","))
+        return ((not args.fail or FAIL_EVENTS.search(e))
+                and (not args.session or args.session in sessions))
+    entries = [(t, e, kv) for t, e, kv in read_log() if wanted(e, kv)]
     for t, e, kv in entries if args.session else entries[-args.n:]:
         shown = {k: v for k, v in kv.items() if not (args.session and k == "session")}
         pairs = " ".join(f"{k}={clean(v)}" for k, v in shown.items())
@@ -162,11 +185,6 @@ def cmd_install_hooks(args: argparse.Namespace) -> int:
         return 1
     if args.remove:
         return remove_hooks(args)
-    if args.emit:
-        atomic_write(args.emit, json.dumps(merged_settings({}, client=args.cli), indent=2) + "\n")
-        hint = f" (use: claude --settings {args.emit})" if args.cli == "claude" else ""
-        print(f"ctx: hooks-only config written to {args.emit}" + hint)
-        return 0
     target = Path(args.settings_file) if args.settings_file else base() / CLIENTS[args.cli]["file"]
     target = Path(os.path.realpath(target))  # write through a symlink, never replace it
     cur = {}
@@ -273,9 +291,7 @@ def _add_maintenance_commands(subparsers):
 
     p = subparsers.add_parser("log", help="read ~/.ctx/log, filtered")
     p.add_argument("-n", type=int, default=40, help="number of lines shown (default: 40)")
-    p.add_argument("--node", help="only lines about this folder and below")
     p.add_argument("--session", help="every line of this session id")
-    p.add_argument("--since", help="30m, 2h, 1d")
     p.add_argument("--fail", action="store_true", help="failures only")
     p.set_defaults(f=cmd_log)
 
@@ -289,7 +305,6 @@ def _add_maintenance_commands(subparsers):
         "--remove", action="store_true", help="remove the ctx hooks (CONTEXT.md files are kept)"
     )
     p.add_argument("--settings-file", help=argparse.SUPPRESS)
-    p.add_argument("--emit", help=argparse.SUPPRESS)
     p.set_defaults(f=cmd_install_hooks)
 
 

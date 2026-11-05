@@ -136,8 +136,8 @@ def t6():
     a3, _, _ = sess("T6A3", truc, "crée un fichier world.txt avec le mot monde")
     r.wait_idle()
     okA = str(truc) in declined and not (truc / "CONTEXT.md").exists()
-    sys.path.insert(0, str(r.CTX_DIR / "src")); import ctx as ctxmod
-    os.environ["CTX_HOME"] = str(HOME); ctxmod.remove_declined(truc)
+    sys.path.insert(0, str(r.CTX_DIR / "src")); import ctx.cli; ctxmod = ctx
+    os.environ["CTX_HOME"] = str(HOME); ctxmod.tree.remove_declined(truc)
     b1, jb1, _ = sess("T6B1", truc, "crée un fichier hello2.txt")
     b2, _, _ = sess("T6B2", truc, "oui, crée le contexte ctx pour ce dossier comme la consigne [ctx] de début de session "
                     "l'indique (exécute la commande init indiquée), puis crée hello2.txt (contenu: salut).", resume=jb1.get("session_id"))

@@ -146,7 +146,7 @@ def main():
         shutil.rmtree(EVIDENCE)
     EVIDENCE.mkdir(parents=True)
     r.make_mirror.build(HOME, init=True)
-    r.ctx("install-hooks", "claude", "--emit", str(r.SETTINGS))
+    r.ctx("install-hooks", "claude", "--settings-file", str(r.SETTINGS), "--yes")
     SIBLING_HASH = r.sha(HOME / "courses/algebra/CONTEXT.md")
     res = {}
     for fn in (step_discovery_yes, step_work_and_sync, step_sibling_isolated, step_undo, step_uninstall):

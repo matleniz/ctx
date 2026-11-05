@@ -1,20 +1,20 @@
 """Ignore rules, node discovery, declined folders, the Subfolders section, bubble-up, git."""
 import fnmatch
 import os
-import re
+import subprocess
 from pathlib import Path
 from typing import Iterator
 
 from .paths import (
-    BUBBLE_LOCK_WAIT, BUILTIN_IGNORE, CHILD_DEPTH, ENTRY_SUMMARY, FULL_ENTRIES, MARKER,
-    MAX_ENTRIES, MAX_SUBS, MAX_SUMMARY, PLACEHOLDERS, REQUIRED, SEC_DECISIONS, SEC_NOTES,
-    SEC_SUBS, SHORT_WIDTH, SUBS_PREFIX, atomic_write, clip, dirlock, log, real, root, self_cmd,
-    stamp, state_dir, text_hash, under,
+    BUBBLE_LOCK_WAIT, BUILTIN_IGNORE, CHILD_DEPTH, ENTRY_SUMMARY, FULL_ENTRIES, MARKER, MAX_ENTRIES,
+    MAX_SUBS, MAX_SUMMARY, PLACEHOLDERS, REQUIRED, SEC_DECISIONS, SEC_NOTES, SEC_SUBS, SHORT_WIDTH,
+    SUBS_PREFIX, atomic_write, clip, dirlock, log, real, root, self_cmd, stamp, state_dir,
+    text_hash, under,
 )
 from .filters import instruction_shaped
 from .doc import (
-    active_decisions, get_status, is_auto, new_doc, note_hash, parse, read_doc, render,
-    save_history, write_doc, written_hashes,
+    active_decisions, get_status, is_auto, new_doc, note_written, own_version, parse, read_doc,
+    render, save_history, write_doc, written_hashes,
 )
 
 
@@ -264,7 +264,7 @@ def computed_summary(node: str | Path) -> str:
     quoted, named, full = [], [], False
     width = max(ENTRY_SUMMARY, (MAX_SUMMARY - 30) // sum(1 for kid in kids if kid[2]) - 20)
     for _u, name, text in kids:
-        entry = f"{name}: {word_clip(text, width)}" if text else ""
+        entry = f"{name}: {clip(text, width)}" if text else ""
         full = full or bool(entry) and len(" · ".join(quoted + [entry])) > MAX_SUMMARY - 30
         if entry and not full:
             quoted.append(entry)
@@ -272,19 +272,9 @@ def computed_summary(node: str | Path) -> str:
             named.append(name)
     if named:
         room = MAX_SUMMARY - len(" · ".join(quoted)) - 3
-        quoted.append(word_clip("also: " + ", ".join(named), room))
+        quoted.append(clip("also: " + ", ".join(named), room))
     return " · ".join(quoted)
 
-
-def word_clip(s: str, n: int) -> str:
-    """`s` on one line, cut at the last word boundary before `n` characters, with an ellipsis."""
-    s = " ".join(s.split())
-    if len(s) <= n:
-        return s
-    cut = s[: n - 1]
-    if " " in cut:
-        cut = cut[: cut.rindex(" ")]
-    return cut.rstrip(" ,;:") + "…"
 
 
 def build_subs(node: str | Path) -> str:
@@ -340,8 +330,7 @@ def refresh_subs(node: str | Path) -> bool:
     for s in REQUIRED:
         d.sections.setdefault(s, "")
     # an edit not synced yet (agent, editor) must stay detectable: no record over it
-    known = (get_status(node) or {}).get("hash")
-    mine = not known or known == text_hash((Path(node) / "CONTEXT.md").read_text(errors="replace"))
+    mine = (get_status(node) or {}).get("written") is None or own_version(node)
     return write_doc(node, d, snapshot=False, record=mine)
 
 
@@ -384,30 +373,22 @@ def show_tree() -> int:
 def git_info_dir(d: str | Path) -> Path | None:
     """The `info` directory of the git repository holding `d`, or None.
 
-    Worktrees and submodules are resolved to their common git directory.
+    Worktrees and submodules share their common git dir (`git rev-parse --git-common-dir`); one
+    outside a .git directory (a `gitdir:` file pointing anywhere) is refused.
     """
-    d = real(d)
-    for p in [d, *d.parents]:
-        g = p / ".git"
-        if g.is_dir():
-            return g / "info"
-        if g.is_file():
-            m = re.match(r"gitdir:\s*(.+)", g.read_text().strip())
-            if m:
-                gitdir = (p / m.group(1)).resolve()
-                # a worktree gitdir lives in <repo>/.git/worktrees/<name>, or anywhere for
-                # submodules (<super>/.git/modules/..): accept only paths inside a .git directory
-                if ".git" not in gitdir.parts:
-                    log("git-exclude-refused", gitdir=gitdir)
-                    return None
-                commondir = gitdir / "commondir"
-                if commondir.is_file():
-                    common = (gitdir / commondir.read_text().strip()).resolve()
-                    if ".git" not in common.parts and not (common / "HEAD").is_file():
-                        return None
-                    gitdir = common
-                return gitdir / "info"
-    return None
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    try:
+        r = subprocess.run(["git", "-C", str(real(d)), "rev-parse", "--git-common-dir"],
+                           capture_output=True, text=True, timeout=10, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    common = (real(d) / r.stdout.strip()).resolve()
+    if ".git" not in common.parts:
+        log("git-exclude-refused", gitdir=common)
+        return None
+    return common / "info"
 
 
 def git_exclude(d: str | Path) -> bool:
@@ -447,7 +428,7 @@ def create_node(d: Path, absorb: bool = True) -> str:
             doc.sections[SEC_NOTES] = parse(old).sections.get(SEC_NOTES, "")
         doc.sections[SEC_SUBS] = build_subs(d)
         atomic_write(d / "CONTEXT.md", render(doc, updated=stamp()))
-        note_hash(d, (d / "CONTEXT.md").read_text())
+        note_written(d, (d / "CONTEXT.md").read_text())
     excluded = git_exclude(d)
     remove_declined(d)
     log("init", node=d, git_excluded=excluded, adopted=adopted)

@@ -16,9 +16,7 @@ and <https://cursor.com/docs/cli/headless>, agy <https://antigravity.google/docs
 | Missing | nothing known | no last messages, only touched files | no session end, no last messages | everything |
 
 Each installed hook command reads `env CTX_HOOK=1 python3 <path>/ctx.py hook <event>`: the `CTX_HOOK=1` marker is how
-`install-hooks` (and `--remove`) tells its entries from yours. Entries installed before the marker
-(`python3 <path>/ctx.py hook <event>`, with a path separator or a space right before `ctx.py hook`)
-are still recognised and replaced on the next install.
+`install-hooks` (and `--remove`) tells its entries from yours; an entry without it is never touched.
 
 ## Observed behaviour
 

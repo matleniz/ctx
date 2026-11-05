@@ -81,23 +81,7 @@ PLACEHOLDERS = ("", "auto", DEFAULT_SUMMARY)
 # section bodies that carry no information (new node; older French nodes)
 EMPTY_BODIES = ("", "(to be filled in)", "(à renseigner)")
 
-# result and status values (also printed by `ctx sync` and stored in state/<hash>.json)
-SYNC_OK = "ok"  # sync_node / sync_session: rewritten (or nothing to change)
-SYNC_FAIL = "fail"  # sync_node / sync_session: a rewrite failed, the work stays queued
-SYNC_QUEUED = "queued"  # sync_node: another process holds the node and will do the work
-SYNC_NONE = "none"  # sync_node: nothing to rewrite
-SESSION_MISSING = "nosession"  # sync_session: no such session directory
-SESSION_BUSY = "busy"  # sync_session: the session is being synced by another process
-SESSION_NOTHING = "nothing"  # sync_session: no pending work
-STATUS_OK = "ok"  # last sync of a node succeeded (state file)
-STATUS_FAIL = "fail"  # last sync of a node failed (state file)
-INJECT_NODE = "node"  # build_injection: the context of a node
-INJECT_DISCOVER = "discover"  # build_injection: the "create a context?" question
-INJECT_NONE = "none"  # build_injection: nothing (ignored or declined folder)
 
-# log and config
-LOG_KV = re.compile(r"(\w+)=(.*?)(?= \w+=|$)")
-FAIL_EVENTS = re.compile(r"fail|error|timeout|abandon")
 
 # the launcher at the root of the clone: hooks and the ~/.local/bin/ctx link run it, and
 # commands shown to people and agents name it
@@ -146,9 +130,14 @@ def under(p: str | Path, top: str | Path) -> bool:
 
 
 def clip(s: str, n: int) -> str:
-    """`s` on one line, cut to `n` characters with a trailing ellipsis."""
+    """`s` on one line, cut at the last word boundary before `n` characters, with an ellipsis."""
     s = " ".join(s.split())
-    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+    if len(s) <= n:
+        return s
+    cut = s[: n - 1]
+    if " " in cut:
+        cut = cut[: cut.rindex(" ")]
+    return cut.rstrip(" ,;:.-") + "…"
 
 
 def text_hash(text: str) -> str:

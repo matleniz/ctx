@@ -1,13 +1,12 @@
 """Checks and fixes behind `ctx doctor`."""
-import collections
 import re
 import shlex
 import shutil
 from pathlib import Path
 
 from .paths import (
-    CONFLICT_RE, MAX_NOTES, MAX_SUMMARY, MAX_TOTAL, PURGE_DAYS, SEC_NOTES, SEC_SUBS, STATUS_FAIL,
-    clean, human_cmd, read_json, root, state_dir,
+    CONFLICT_RE, MAX_NOTES, MAX_SUMMARY, MAX_TOTAL, PURGE_DAYS, SEC_NOTES, SEC_SUBS, clean,
+    human_cmd, read_json, root, state_dir,
 )
 from .doc import parse, valid_shape
 from .tree import find_foreign, parent_node
@@ -90,7 +89,7 @@ def check_failed_syncs() -> list[str]:
     sdir = state_dir() / "state"
     for f in sdir.glob("*.json") if sdir.is_dir() else []:
         s = read_json(f, {})
-        if s.get("status") == STATUS_FAIL and Path(s.get("path", "/")).exists():
+        if s.get("status") == "fail" and Path(s.get("path", "/")).exists():
             problems.append(f"failed sync: {clean(s.get('path'))} at {clean(s.get('time'))}: "
                             f"{clean(s.get('error'))}")
     return problems
@@ -122,10 +121,6 @@ def print_report(problems: list[str], nodes: list[Path], entries: list) -> None:
             last[kv["node"]] = t
     for n, t in sorted(last.items(), key=lambda x: x[1]):
         print(f"ctx doctor: last sync {t:%Y-%m-%d %H:%M} {n}")
-    cnt = collections.Counter(e for _t, e, _kv in entries)
-    print(f"ctx doctor: retries triggered={cnt['rewrite-retry']} "
-          f"(failed again={cnt['rewrite-retry-fail']}), "
-          f"syncs={cnt['sync']}, trimmed={cnt['trimmed']}, failed syncs={cnt['sync-fail']}")
     size = sum(x.stat().st_size for x in state_dir().rglob("*") if x.is_file())
     exe = shutil.which(REWRITERS["claude"]["cmd"][0])
     try:

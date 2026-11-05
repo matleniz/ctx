@@ -39,7 +39,7 @@ def main():
         shutil.rmtree(EVIDENCE)
     EVIDENCE.mkdir(parents=True)
     r.make_mirror.build(HOME, init=True)
-    r.ctx("install-hooks", "claude", "--emit", str(r.SETTINGS))
+    r.ctx("install-hooks", "claude", "--settings-file", str(r.SETTINGS), "--yes")
     node = HOME / "courses/ml-intro"
 
     # C2 bootstrap: read-only session on a placeholder node fills it once

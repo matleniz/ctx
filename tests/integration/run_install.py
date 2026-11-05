@@ -61,7 +61,7 @@ def main():
     for cli, rel in (("claude", ".claude/settings.json"), ("cursor", ".cursor/hooks.json")):
         d = run(ctx + ["install-hooks", cli, "--dry-run"], env)
         assert "dry run" in d.stdout and (home / rel).read_text() == cfg[rel]
-        run(ctx + ["install-hooks", cli, "--emit", str(tmp / f"{cli}.emit.json")], env)
+        run(ctx + ["install-hooks", cli, "--settings-file", str(tmp / f"{cli}.emit.json"), "--yes"], env)
         assert "hook" in (tmp / f"{cli}.emit.json").read_text()
         run(ctx + ["install-hooks", cli], env, inp="y\n")  # real write, confirmation answered
         assert (home / rel).read_text() != cfg[rel]

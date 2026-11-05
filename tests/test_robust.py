@@ -20,7 +20,7 @@ from unittest import mock
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "src"))
 sys.path.insert(0, str(HERE))
-import ctx  # noqa: E402
+import ctx.cli  # noqa: E402
 import test_ctx  # noqa: E402
 from test_ctx import Fake, fake_output  # noqa: E402
 
@@ -62,7 +62,7 @@ class Robust(test_ctx.Base):
                 f.write(text.replace(str(self.home.parent), "$TMP").rstrip() + "\n")
 
     def end(self, sid):
-        (self.home / ".ctx/sessions" / sid / "ended").write_text(ctx.stamp())
+        (self.home / ".ctx/sessions" / sid / "ended").write_text(ctx.paths.stamp())
 
     def wait(self, cond, secs=20):
         end = time.time() + secs
@@ -115,7 +115,7 @@ class TestCrashesAndCuts(Robust):
         self.assertEqual(self.text("courses/ml-intro"), before)  # no partial CONTEXT.md
         self.assertEqual(self.tmp_files(), [])
         for n in (self.node, self.p("courses"), self.home):
-            with ctx.dirlock(n, blocking=False) as got:
+            with ctx.paths.dirlock(n, blocking=False) as got:
                 self.assertTrue(got, f"residual lock on {n}")
         sd = self.home / ".ctx/sessions/s1"
         self.assertTrue((sd / "ended").exists() and not (sd / "synced.json").exists())
@@ -126,7 +126,7 @@ class TestCrashesAndCuts(Robust):
         self.assertTrue(self.wait(lambda: (sd / "synced.json").exists()), "no catch-up")
         d = self.doc("courses/ml-intro")
         self.assertEqual(d.summary, "Chapitre 4 avance, ex3 ajouté")
-        self.assertIn("ex3 ajouté", d.sections[ctx.SEC_STATUS])
+        self.assertIn("ex3 ajouté", d.sections[ctx.paths.SEC_STATUS])
         st = json.loads((sd / "synced.json").read_text())
         self.assertEqual((st["offset"], st["fails"]), (1, 0))
         self.assertEqual(self.tmp_files(), [])
@@ -139,9 +139,9 @@ class TestCrashesAndCuts(Robust):
         script = f"""
 import os, signal, sys
 sys.path.insert(0, {str(HERE.parent / "src")!r})
-import ctx
+import ctx.cli
 ctx.sync.bubble = lambda n: os.kill(os.getpid(), signal.SIGKILL)  # power cut right after the node is written
-ctx.sync_session("s1", lambda s, p: ({fake_output()!r}, {{"in": 1, "out": 1, "secs": 0}}))
+ctx.sync.sync_session("s1", lambda s, p: ({fake_output()!r}, {{"in": 1, "out": 1, "secs": 0}}))
 """
         self.session("s1", "courses/ml-intro", [self.f1], "ex1 écrit")
         self.end("s1")
@@ -150,31 +150,31 @@ ctx.sync_session("s1", lambda s, p: ({fake_output()!r}, {{"in": 1, "out": 1, "se
         self.assertEqual(self.doc("courses/ml-intro").summary, "Chapitre 4 avance, ex3 ajouté")  # node written
         self.assertNotIn("Chapitre 4 avance", self.text("courses"))  # parent not rebuilt
         for n in (self.node, self.p("courses"), self.home):
-            with ctx.dirlock(n, blocking=False) as got:
+            with ctx.paths.dirlock(n, blocking=False) as got:
                 self.assertTrue(got)
         rc, out = self.run_ctx("doctor")
         self.assertIn("0 problem(s)", out)
         fk = Fake()
-        self.assertEqual(ctx.sync_node(self.node, [], [], fk), "ok")  # the work queued by the cut session is drained, then the bubble runs
+        self.assertEqual(ctx.sync.sync_node(self.node, [], [], fk), "ok")  # the work queued by the cut session is drained, then the bubble runs
         self.assertEqual(len(fk.calls), 1)
         self.assertIn("Chapitre 4 avance", self.text("courses"))
         self.assertIn("Chapitre 4 avance", self.text(""))
         self.ev("R2", f"SIGKILL inside bubble(): node summary written, parent (courses) not yet\nlocks free: True; "
-                      f"doctor: {out.strip().splitlines()[-1]}\nlater ctx.sync_node drains the queued work and rebuilds courses and ~:\n{self.logtail(3)}")
+                      f"doctor: {out.strip().splitlines()[-1]}\nlater ctx.sync.sync_node drains the queued work and rebuilds courses and ~:\n{self.logtail(3)}")
 
     def test_cut_between_session_end_hook_and_popen(self):
         from unittest import mock
         self.session("s1", "courses/ml-intro", [self.f1], "ex1 écrit")
         with mock.patch.object(ctx.hooks, "spawn_sync", side_effect=lambda sid: None) as sp:  # the Popen never happens
-            ctx.run_hook("session-end", json.dumps({"session_id": "s1", "cwd": str(self.node)}))
+            ctx.hooks.run_hook("session-end", json.dumps({"session_id": "s1", "cwd": str(self.node)}))
         sd = self.home / ".ctx/sessions/s1"
         self.assertEqual(sp.call_count, 1)
         self.assertTrue((sd / "ended").exists() and not (sd / "synced.json").exists())
         spawned = []
         with mock.patch.object(ctx.sessions, "spawn_sync", side_effect=spawned.append):  # catch_up
-            ctx.run_hook("session-start", json.dumps({"session_id": "s2", "cwd": str(self.node)}))
+            ctx.hooks.run_hook("session-start", json.dumps({"session_id": "s2", "cwd": str(self.node)}))
         self.assertEqual(spawned, ["s1"])
-        self.assertEqual(ctx.sync_session("s1", Fake()), "ok")
+        self.assertEqual(ctx.sync.sync_session("s1", Fake()), "ok")
         self.ev("R3", f"SessionEnd hook ran (ended marker written) but spawn_sync did nothing (no Popen)\n"
                       f"session s1 stays pending: ended={ (sd/'ended').exists() }\nnext SessionStart spawned: {spawned}\n{self.logtail(2)}")
 
@@ -184,56 +184,56 @@ ctx.sync_session("s1", lambda s, p: ({fake_output()!r}, {{"in": 1, "out": 1, "se
         self.session("B", "courses/algebra", ["courses/algebra/tp/tp1.py"], "tp1")
         sa, sb = (self.home / ".ctx/sessions" / x for x in "AB")
         for sd in (sa, sb):  # both launched by a live process (this one)
-            (sd / "pid").write_text(f"{me} {ctx.proc_start(me)}\n")
-        self.assertTrue(ctx.session_live(sa))
-        self.assertEqual(ctx.catch_up(spawn=False, skip_live=True), [])  # nothing lost, nothing stolen while live
+            (sd / "pid").write_text(f"{me} {ctx.sessions.proc_start(me)}\n")
+        self.assertTrue(ctx.sessions.session_live(sa))
+        self.assertEqual(ctx.sessions.catch_up(spawn=False, skip_live=True), [])  # nothing lost, nothing stolen while live
         # computer sleeps 13 h (past the 12 h a live pid protects): A's timestamps are shifted, B kept working
         for x in [sa, *sa.iterdir()]:
             os.utime(x, (time.time() - 13 * 3600,) * 2)
-        self.assertFalse(ctx.session_live(sa))
-        found = ctx.catch_up(spawn=False, skip_live=True)
+        self.assertFalse(ctx.sessions.session_live(sa))
+        found = ctx.sessions.catch_up(spawn=False, skip_live=True)
         self.assertEqual(found, ["A"])
         fk = Fake()
-        self.assertEqual(ctx.sync_session("A", fk), "ok")
+        self.assertEqual(ctx.sync.sync_session("A", fk), "ok")
         self.assertEqual(len(fk.calls), 1)
         self.assertIn("ex1.py", fk.calls[0][1])
         self.assertNotIn("tp1.py", fk.calls[0][1])  # B's work was not attributed to A's node
-        self.assertEqual(self.doc("courses/algebra").summary, ctx.DEFAULT_SUMMARY)
-        self.assertEqual(ctx.session_pending(sb)[0], ["%s" % (self.p("courses/algebra/tp/tp1.py"))])
+        self.assertEqual(self.doc("courses/algebra").summary, ctx.paths.DEFAULT_SUMMARY)
+        self.assertEqual(ctx.sessions.session_pending(sb)[0], ["%s" % (self.p("courses/algebra/tp/tp1.py"))])
         # A resumes after the sleep and edits one more file: only that one is synced, once
         self.session("A", "courses/ml-intro", ["courses/ml-intro/exos/ex2.py"], "ex2")
         self.end("A")
         fk2 = Fake(fake_output(summary="ex2 aussi"))
-        self.assertEqual(ctx.sync_session("A", fk2), "ok")
+        self.assertEqual(ctx.sync.sync_session("A", fk2), "ok")
         self.assertIn("ex2.py", fk2.calls[0][1])
         self.assertNotIn("ex1.py", fk2.calls[0][1])
-        self.assertEqual(ctx.sync_session("A", fk2), "nothing")
+        self.assertEqual(ctx.sync.sync_session("A", fk2), "nothing")
         # WSL stopped: every process was killed, the recorded CLI pid is gone -> not live at once, even with fresh timestamps
         dead = subprocess.Popen(["sleep", "300"])
-        pid, started = dead.pid, ctx.proc_start(dead.pid)
+        pid, started = dead.pid, ctx.sessions.proc_start(dead.pid)
         self.session("C", "courses/challenge", ["courses/challenge/src/train.py"], "train")
         sc = self.home / ".ctx/sessions/C"
         (sc / "pid").write_text(f"{pid} {started}\n")
-        self.assertTrue(ctx.session_live(sc))
+        self.assertTrue(ctx.sessions.session_live(sc))
         dead.kill()
         dead.wait()
-        self.assertFalse(ctx.session_live(sc))
-        self.assertIn("C", ctx.catch_up(spawn=False, skip_live=True))
+        self.assertFalse(ctx.sessions.session_live(sc))
+        self.assertIn("C", ctx.sessions.catch_up(spawn=False, skip_live=True))
         # pid reused by an unrelated process after the reboot: start time differs -> still dead, never mistaken for live
         if sys.platform != "linux":  # the start time comes from /proc
             self.skipTest(LINUX_ONLY + " (pid reuse check; the rest of this test ran)")
         (sc / "pid").write_text(f"{me} 1\n")
-        self.assertTrue(ctx.pid_dead(sc))
+        self.assertTrue(ctx.sessions.pid_dead(sc))
         self.ev("R10", "13 h sleep (timestamps shifted): A caught up once, B (live) untouched, no cross-attribution, "
                        "post-resume edit synced alone\nWSL stop (CLI pid killed): C not live immediately, caught up; "
                        f"reused pid (start time mismatch) -> dead\n{self.logtail(4)}")
 
 
 class TestModelFailuresAndTimeouts(Robust):
-    def run_fails(self, sid, rewriter=ctx.cli_rewriter):
+    def run_fails(self, sid, rewriter=ctx.rewriter.cli_rewriter):
         self.session(sid, "courses/ml-intro", [self.f1], "ex1")
         self.end(sid)
-        return ctx.sync_session(sid, rewriter)
+        return ctx.sync.sync_session(sid, rewriter)
 
     def test_model_call_impossible_four_causes(self):
         cases = {"logged-out": (f"cat <<'EOF'\n{LOGGED_OUT}\nEOF\nexit 1\n", "Not logged in"),
@@ -252,23 +252,23 @@ class TestModelFailuresAndTimeouts(Robust):
                 self.assertEqual(self.text("courses/ml-intro"), before)  # old file kept
                 self.assertRegex(self.log_text(), rf"sync-fail node=\S*ml-intro error=RuntimeError: claude exit 1: .*{cause}"
                                  if body else rf"sync-fail node=\S*ml-intro error=FileNotFoundError: .*{cause}")
-                self.assertIn(cause, ctx.status_line(self.node))
-                self.ev("R4", f"[{name}] sync -> fail; CONTEXT.md unchanged\n{self.logtail(1)}status line: {ctx.status_line(self.node)}")
+                self.assertIn(cause, ctx.doc.status_line(self.node))
+                self.ev("R4", f"[{name}] sync -> fail; CONTEXT.md unchanged\n{self.logtail(1)}status line: {ctx.doc.status_line(self.node)}")
 
     def test_abandon_is_visible_and_retry_by_hand(self):
         self.fake_claude(f"cat <<'EOF'\n{LOGGED_OUT}\nEOF\nexit 1\n")
         self.with_path(f"{self.bin}:{os.environ['PATH']}")
         self.assertEqual(self.run_fails("s1"), "fail")
-        self.assertEqual(ctx.abandoned(), [])  # first failure: still retried automatically
-        self.assertEqual(ctx.sync_session("s1", ctx.cli_rewriter), "fail")  # second: given up
-        self.assertEqual(ctx.catch_up(spawn=False), [])
-        ab = ctx.abandoned()
+        self.assertEqual(ctx.sessions.abandoned(), [])  # first failure: still retried automatically
+        self.assertEqual(ctx.sync.sync_session("s1", ctx.rewriter.cli_rewriter), "fail")  # second: given up
+        self.assertEqual(ctx.sessions.catch_up(spawn=False), [])
+        ab = ctx.sessions.abandoned()
         self.assertEqual([x[0] for x in ab], ["s1"])
         rc, out = self.run_ctx("doctor")
         self.assertEqual(rc, 1)
         self.assertIn("abandoned session: s1 (RuntimeError: claude exit 1: Not logged in", out)
         self.assertIn(" sync --session s1` retries by hand", out)
-        inj, _ = ctx.build_injection(self.node)
+        inj, _ = ctx.hooks.build_injection(self.node)
         self.assertIn("last sync: FAILED", inj)
         self.assertIn("Sync abandoned (session s1", inj)
         self.assertIn("Sync abandoned (session s1, RuntimeError: claude exit 1: Not logged in", inj.split("<ctx-data>")[1])
@@ -277,12 +277,12 @@ class TestModelFailuresAndTimeouts(Robust):
         self.fake_claude(f"cat <<'EOF'\n{OK_JSON}\nEOF\n")
         rc, out2 = self.run_ctx("sync", "--session", "s1")
         self.assertIn("session s1: ok", out2)
-        self.assertEqual(ctx.abandoned(), [])
+        self.assertEqual(ctx.sessions.abandoned(), [])
         self.assertEqual(self.doc("courses/ml-intro").summary, "Chapitre 4 avance, ex3 ajouté")
-        self.assertIn("last sync: ok", ctx.status_line(self.node))
+        self.assertIn("last sync: ok", ctx.doc.status_line(self.node))
         self.assertIn("0 problem(s)", self.run_ctx("doctor")[1])
         self.ev("R4", f"abandon after 2 failures\n--- ctx doctor:\n{out}--- SessionStart injection head:\n{inj.splitlines()[0]}\n"
-                      f"--- after login, `ctx sync --session s1`: {out2.strip()}; abandoned={ctx.abandoned()}")
+                      f"--- after login, `ctx sync --session s1`: {out2.strip()}; abandoned={ctx.sessions.abandoned()}")
 
     @unittest.skipUnless(sys.platform == "linux", LINUX_ONLY)
     def test_timeout_kills_the_whole_process_group(self):
@@ -298,7 +298,7 @@ class TestModelFailuresAndTimeouts(Robust):
         pids = [int((self.work / f).read_text()) for f in ("claude.pid", "child.pid", "grandchild.pid")]
         self.assertTrue(self.wait(lambda: not any(self.alive(p) for p in pids), 5), pids)
         self.assertRegex(self.log_text(), r"sync-fail .*model timeout after 2s")
-        self.assertIn("model timeout", ctx.status_line(self.node))
+        self.assertIn("model timeout", ctx.doc.status_line(self.node))
         self.ev("R5", f"MODEL_TIMEOUT=2 with a fake claude holding a child and a grandchild (sleep 300)\n"
                       f"returned after {time.time() - t0:.1f}s; pids {pids} alive: {[self.alive(p) for p in pids]}\n{self.logtail(1)}")
 
@@ -313,35 +313,35 @@ class TestModelFailuresAndTimeouts(Robust):
         pids = [int((self.work / f).read_text()) for f in ("claude.pid", "grandchild.pid")]
         self.assertTrue(self.wait(lambda: not any(self.alive(p) for p in pids), 5), pids)
         self.assertRegex(self.log_text(), r"sync-fail .*error=Alarm: sync deadline")
-        self.assertIn("sync deadline", ctx.status_line(self.node))
+        self.assertIn("sync deadline", ctx.doc.status_line(self.node))
         self.assertEqual(self.run_fails("s1b"), "fail")
         self.assertEqual(self.run_fails("s1"), "fail")  # second failure of s1: abandoned, same as R4
-        self.assertIn("s1", [x[0] for x in ctx.abandoned()])
+        self.assertIn("s1", [x[0] for x in ctx.sessions.abandoned()])
         self.ev("R5", f"sync_deadline=2 (SIGALRM deadline) while claude runs: pids {pids} alive: {[self.alive(p) for p in pids]}\n"
-                      f"same treatment as R4: abandoned={[x[0] for x in ctx.abandoned()]}\n{self.logtail(3)}")
+                      f"same treatment as R4: abandoned={[x[0] for x in ctx.sessions.abandoned()]}\n{self.logtail(3)}")
 
 
 class TestExternalEditsAndMovedNodes(Robust):
     def test_external_write_is_the_base_and_conflict_files_are_ignored(self):
         self.session("s1", "courses/ml-intro", [self.f1], "ex1")
-        self.assertEqual(ctx.sync_session("s1", Fake()), "ok")
+        self.assertEqual(ctx.sync.sync_session("s1", Fake()), "ok")
         d = self.doc("courses/ml-intro")
-        d.sections[ctx.SEC_NOTES] = "- noté depuis l'autre machine"
-        d.sections[ctx.SEC_STATUS] = "- travail de la machine B"
-        (self.node / "CONTEXT.md").write_text(ctx.render(d, updated="2026-11-04T09:00"))  # written outside ctx (Drive/Syncthing)
+        d.sections[ctx.paths.SEC_NOTES] = "- noté depuis l'autre machine"
+        d.sections[ctx.paths.SEC_STATUS] = "- travail de la machine B"
+        (self.node / "CONTEXT.md").write_text(ctx.doc.render(d, updated="2026-11-04T09:00"))  # written outside ctx (Drive/Syncthing)
         (self.node / "CONTEXT (conflit).md").write_text("---\nsummary: FAUX conflit\n---\n## Notes\n- ne pas lire\n")
         (self.node / "CONTEXT.sync-conflict-20261104-101010-ABCDEFG.md").write_text("conflit syncthing UNIQUE-MARQUEUR\n")
-        inj, _ = ctx.build_injection(self.node)
+        inj, _ = ctx.hooks.build_injection(self.node)
         self.assertNotIn("FAUX conflit", inj)
         self.assertNotIn("UNIQUE-MARQUEUR", inj)
         self.assertIn("noté depuis l'autre machine", inj)
         self.session("s2", "courses/ml-intro", ["courses/ml-intro/exos/ex2.py"], "ex2")
         fk = Fake(fake_output(summary="après B"))
-        self.assertEqual(ctx.sync_session("s2", fk), "ok")
+        self.assertEqual(ctx.sync.sync_session("s2", fk), "ok")
         self.assertIn("travail de la machine B", fk.calls[0][1])  # the external version, not the last ctx one, is the base
         self.assertNotIn("UNIQUE-MARQUEUR", fk.calls[0][1])
         self.assertNotIn("conflit", fk.calls[0][1].split("<files")[-1])  # conflict copies are not even listed as touched files
-        hist = "".join(x.read_text() for x in ctx.history_dir(self.node).glob("*.md"))
+        hist = "".join(x.read_text() for x in ctx.doc.history_dir(self.node).glob("*.md"))
         self.assertIn("travail de la machine B", hist)  # kept in history: ctx undo brings it back
         self.assertIn("noté depuis l'autre machine", self.text("courses/ml-intro"))  # Notes untouched
         rc, out = self.run_ctx("doctor")
@@ -353,30 +353,30 @@ class TestExternalEditsAndMovedNodes(Robust):
 
     def test_moved_renamed_deleted_nodes_and_doctor_fix(self):
         self.session("s1", "courses/ml-intro", [self.f1], "ex1")
-        self.assertEqual(ctx.sync_session("s1", Fake()), "ok")
+        self.assertEqual(ctx.sync.sync_session("s1", Fake()), "ok")
         self.assertIn("**ml-intro/**", self.text("courses"))
-        old_hist = ctx.history_dir(self.node)
+        old_hist = ctx.doc.history_dir(self.node)
         os.rename(self.node, self.p("courses/y"))  # rename: CONTEXT.md travels with the folder
         shutil.rmtree(self.p("courses/algebra"))
         rc, out = self.run_ctx("doctor")
         self.assertIn("line for missing folder", out)  # transient, until the next rebuild
-        self.assertEqual(ctx.sync_node(self.p("courses/y"), [], [], Fake()), "none")  # rebuild: no model call
-        self.assertEqual(ctx.refresh_subs(self.p("courses")), False)
-        subs = self.doc("courses").sections[ctx.SEC_SUBS]
+        self.assertEqual(ctx.sync.sync_node(self.p("courses/y"), [], [], Fake()), "none")  # rebuild: no model call
+        self.assertEqual(ctx.tree.refresh_subs(self.p("courses")), False)
+        subs = self.doc("courses").sections[ctx.paths.SEC_SUBS]
         self.assertIn("**y/**", subs)
         self.assertNotIn("ml-intro", subs)
         self.assertNotIn("algebra", subs)
         self.assertIn("Chapitre 4 avance", subs)
         # a session in the renamed node works without error (state/history re-created under the new path)
         self.session("s2", "courses/y", ["courses/y/exos/ex2.py"], "ex2")
-        self.assertEqual(ctx.sync_session("s2", Fake(fake_output(summary="renommé"))), "ok")
-        self.assertTrue(ctx.history_dir(self.p("courses/y")).is_dir())
+        self.assertEqual(ctx.sync.sync_session("s2", Fake(fake_output(summary="renommé"))), "ok")
+        self.assertTrue(ctx.doc.history_dir(self.p("courses/y")).is_dir())
         # orphan state/history of the vanished path: kept 30 days, then doctor proposes `ctx doctor --fix`
         self.assertTrue(old_hist.is_dir())
         rc, out = self.run_ctx("doctor")
         self.assertNotIn("doctor --fix", out)
         old = time.time() - 31 * 86400
-        gone = [old_hist, *old_hist.iterdir(), ctx.state_dir() / "state" / f"{ctx.path_key(self.node)}.json"]
+        gone = [old_hist, *old_hist.iterdir(), ctx.paths.state_dir() / "state" / f"{ctx.paths.path_key(self.node)}.json"]
         for x in gone:
             os.utime(x, (old, old))
         rc, out = self.run_ctx("doctor")
@@ -385,7 +385,7 @@ class TestExternalEditsAndMovedNodes(Robust):
         rc, pr = self.run_ctx("doctor", "--fix")
         self.assertIn("pruned 2 orphan entries", pr)
         self.assertFalse(old_hist.exists())
-        self.assertTrue(ctx.history_dir(self.p("courses/y")).is_dir())  # live nodes untouched
+        self.assertTrue(ctx.doc.history_dir(self.p("courses/y")).is_dir())  # live nodes untouched
         self.assertEqual(self.run_ctx("doctor")[0], 0)
         self.ev("R7", f"rename courses/ml-intro -> courses/y, rmtree courses/algebra\nparent Subfolders after rebuild:\n{subs}\n"
                       f"--- doctor with 31-day-old orphans:\n{out}--- ctx doctor --fix: {pr}")
@@ -399,24 +399,24 @@ class TestExternalEditsAndMovedNodes(Robust):
         def rewriter(system, prompt):  # the user edits CONTEXT.md while the model is thinking
             prompts.append(prompt)
             if len(prompts) == 1:
-                d = ctx.read_doc(node)
-                d.sections[ctx.SEC_NOTES] = "- note ajoutée à la main PENDANT la synchro"
-                d.sections[ctx.SEC_STATUS] = "- ligne à la main gardée"
-                (node / "CONTEXT.md").write_text(ctx.render(d, updated="2026-11-04T10:00"))
+                d = ctx.doc.read_doc(node)
+                d.sections[ctx.paths.SEC_NOTES] = "- note ajoutée à la main PENDANT la synchro"
+                d.sections[ctx.paths.SEC_STATUS] = "- ligne à la main gardée"
+                (node / "CONTEXT.md").write_text(ctx.doc.render(d, updated="2026-11-04T10:00"))
             return fake_output(where="- version du modèle"), {"in": 1, "out": 1, "secs": 0}
-        self.assertEqual(ctx.sync_session("s1", rewriter), "ok")
+        self.assertEqual(ctx.sync.sync_session("s1", rewriter), "ok")
         d = self.doc("courses/ml-intro")
         self.assertEqual(len(prompts), 2)  # the first answer was not written over the hand edit
         self.assertIn("ligne à la main gardée", prompts[1])  # the redo starts from the hand version
-        self.assertEqual(d.sections[ctx.SEC_NOTES], "- note ajoutée à la main PENDANT la synchro")
-        self.assertEqual(d.sections[ctx.SEC_STATUS], "- version du modèle")
+        self.assertEqual(d.sections[ctx.paths.SEC_NOTES], "- note ajoutée à la main PENDANT la synchro")
+        self.assertEqual(d.sections[ctx.paths.SEC_STATUS], "- version du modèle")
         self.assertRegex(self.log_text(), r"sync-conflict")
-        self.assertIn("ligne à la main gardée", "".join(x.read_text() for x in ctx.history_dir(node).glob("*.md")))
+        self.assertIn("ligne à la main gardée", "".join(x.read_text() for x in ctx.doc.history_dir(node).glob("*.md")))
         self.assertEqual(self.run_ctx("undo", str(node))[0], 0)  # the hand version is one `ctx undo` away
         self.assertIn("ligne à la main gardée", self.text("courses/ml-intro"))
         self.assertIn("PENDANT la synchro", self.text("courses/ml-intro"))
-        self.ev("R8", f"hand edit (Notes + Status) during the model call\nafter sync: Notes={d.sections[ctx.SEC_NOTES]!r}, "
-                      f"Status={d.sections[ctx.SEC_STATUS]!r}\nhand version in history; `ctx undo` restores it\n{self.logtail(3)}")
+        self.ev("R8", f"hand edit (Notes + Status) during the model call\nafter sync: Notes={d.sections[ctx.paths.SEC_NOTES]!r}, "
+                      f"Status={d.sections[ctx.paths.SEC_STATUS]!r}\nhand version in history; `ctx undo` restores it\n{self.logtail(3)}")
 
 
 class TestStateDiskAndSlowHooks(Robust):
@@ -459,10 +459,10 @@ class TestStateDiskAndSlowHooks(Robust):
 
     def test_log_rotation_sessions_purge_history_cap_and_size(self):
         for i in range(12000):
-            ctx.log("filler", n=i, pad="x" * 80)
+            ctx.paths.log("filler", n=i, pad="x" * 80)
         sd = self.home / ".ctx"
         self.assertTrue((sd / "log.1").exists())
-        self.assertLessEqual((sd / "log").stat().st_size, ctx.LOG_MAX)
+        self.assertLessEqual((sd / "log").stat().st_size, ctx.paths.LOG_MAX)
         self.assertEqual(sorted(x.name for x in sd.iterdir() if x.name.startswith("log")), ["log", "log.1"])
         self.assertIn(" rotate ", (sd / "log").read_text())
         # 1000 simulated sessions: 900 finished 8 days ago, 100 recent; all synced
@@ -477,23 +477,23 @@ class TestStateDiskAndSlowHooks(Robust):
             if i < 900:
                 for x in [*s.iterdir(), s]:
                     os.utime(x, (old, old))
-        self.assertEqual(ctx.catch_up(spawn=False), [])
+        self.assertEqual(ctx.sessions.catch_up(spawn=False), [])
         left = len(list(base.iterdir()))
         self.assertEqual(left, 100)
         # an abandoned session is purged too, after a week
         # history: 25 distinct rewrites keep 10 snapshots
         for i in range(25):
-            ctx.sync_node(self.node, [str(self.p(self.f1))], [], Fake(fake_output(summary=f"v{i}")))
-        self.assertEqual(len(list(ctx.history_dir(self.node).glob("*.md"))), ctx.HISTORY_KEEP)
+            ctx.sync.sync_node(self.node, [str(self.p(self.f1))], [], Fake(fake_output(summary=f"v{i}")))
+        self.assertEqual(len(list(ctx.doc.history_dir(self.node).glob("*.md"))), ctx.paths.HISTORY_KEEP)
         rc, out = self.run_ctx("doctor")
         self.assertRegex(out, r"uses \d+ KiB")
         self.ev("R11", f"12000 log lines: files {sorted(x.name for x in sd.iterdir() if x.name.startswith('log'))}, "
-                       f"log {(sd / 'log').stat().st_size} bytes <= {ctx.LOG_MAX}\n1000 sessions (900 aged 8 days) -> {left} left after catch_up\n"
-                       f"25 rewrites -> {len(list(ctx.history_dir(self.node).glob('*.md')))} history snapshots\n"
+                       f"log {(sd / 'log').stat().st_size} bytes <= {ctx.paths.LOG_MAX}\n1000 sessions (900 aged 8 days) -> {left} left after catch_up\n"
+                       f"25 rewrites -> {len(list(ctx.doc.history_dir(self.node).glob('*.md')))} history snapshots\n"
                        f"{[ln for ln in out.splitlines() if 'uses' in ln][0]}")
 
     def test_slow_hook_gives_up_before_the_cli_delay(self):
-        fifo = ctx.state_dir() / "state" / f"{ctx.path_key(self.node)}.json"
+        fifo = ctx.paths.state_dir() / "state" / f"{ctx.paths.path_key(self.node)}.json"
         fifo.parent.mkdir(parents=True, exist_ok=True)
         fifo.unlink(missing_ok=True)
         os.mkfifo(fifo)  # reading the node status blocks forever: a disk that never answers
@@ -501,14 +501,14 @@ class TestStateDiskAndSlowHooks(Robust):
         r = self.hook("session-start", {"session_id": "s1", "cwd": str(self.node)}, timeout=30)
         dt = time.time() - t0
         self.assertEqual((r.returncode, r.stdout.strip()), (0, ""))  # session starts, no context injected
-        self.assertGreaterEqual(dt, ctx.HOOK_DEADLINE - 1)
+        self.assertGreaterEqual(dt, ctx.paths.HOOK_DEADLINE - 1)
         # No wall-clock "< 10 s" here: on WSL2 the kernel delivers SIGALRM to a process blocked
         # opening a FIFO up to ~2.5 s late, one run in four (same with plain Python: open + alarm(8)
         # -> 8.0 s or 10.0-10.4 s). What ctx controls is checked instead: an 8 s deadline, 2 s under
         # the CLI's 10 s, armed as soon as the hook starts (below).
         self.assertLess(dt, 20)
         self.assertRegex(self.log_text(), r"hook-timeout hook=session-start error=Alarm")
-        self.assertLessEqual(ctx.HOOK_DEADLINE, 8)
+        self.assertLessEqual(ctx.paths.HOOK_DEADLINE, 8)
         armed, real_alarm = [], signal.alarm
         t1 = time.time()
 
@@ -518,7 +518,7 @@ class TestStateDiskAndSlowHooks(Robust):
         with mock.patch.object(ctx.hooks, "HOOK_DEADLINE", 1), mock.patch.object(ctx.paths.signal, "alarm", alarm), \
                 mock.patch.object(sys, "stdin", io.StringIO(json.dumps({"session_id": "s2", "cwd": str(self.node)}))), \
                 redirect_stdout(io.StringIO()) as out:
-            self.assertEqual(ctx.main(["hook", "session-start"]), 0)  # in-process: same code, 1 s deadline
+            self.assertEqual(ctx.cli.main(["hook", "session-start"]), 0)  # in-process: same code, 1 s deadline
         self.assertEqual(out.getvalue(), "")
         self.assertEqual(armed[0][0], 1)  # the hook arms its deadline first...
         self.assertLess(armed[0][1], 0.5)  # ...right away, before any read
@@ -550,7 +550,7 @@ def _sync_child(node, summary, barrier, write_delay, subs_delay):
         time.sleep(subs_delay)
         return out
     with mock.patch.object(ctx.sync, "write_doc", slow_write), mock.patch.object(ctx.tree, "build_subs", slow_subs):
-        ok = ctx.sync_node(Path(node), [str(Path(node) / "x.py")], [], rewriter) == "ok"
+        ok = ctx.sync.sync_node(Path(node), [str(Path(node) / "x.py")], [], rewriter) == "ok"
     os._exit(0 if ok else 1)
 
 
@@ -582,14 +582,14 @@ class TestSiblingsAndWorktrees(test_ctx.Base):
             for pr in ps:
                 pr.join(60)
                 self.assertEqual(pr.exitcode, 0)
-            subs = ctx.read_doc(parent).sections[ctx.SEC_SUBS]  # not the computed summary: it rereads
+            subs = ctx.doc.read_doc(parent).sections[ctx.paths.SEC_SUBS]  # not the computed summary: it rereads
             for k, s in zip(kids, sums):
                 self.assertIn(f"- **{k.name}/** — {s}", subs, f"round {rnd}: a sibling's line was lost")
             self.assertEqual(self.leftovers(), [])
             for d in (parent, *kids):
-                with ctx.dirlock(d, blocking=False) as got:
+                with ctx.paths.dirlock(d, blocking=False) as got:
                     self.assertTrue(got, f"lock left on {d}")
-        self.assertTrue(ctx.valid_shape(ctx.read_doc(parent)))
+        self.assertTrue(ctx.doc.valid_shape(ctx.doc.read_doc(parent)))
 
     def git(self, *args, cwd):
         env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
@@ -612,7 +612,7 @@ class TestSiblingsAndWorktrees(test_ctx.Base):
         for n in nodes:
             self.init(n)
         # the exclude goes to the common git dir (git reads info/exclude there for every worktree)
-        self.assertEqual(ctx.git_info_dir(nodes[0]), (repo / ".git" / "info").resolve())
+        self.assertEqual(ctx.tree.git_info_dir(nodes[0]), (repo / ".git" / "info").resolve())
         self.assertIn("CONTEXT.md", (repo / ".git/info/exclude").read_text().split("\n"))
         self.assertFalse((repo / ".git/worktrees/wt1/info/exclude").exists())
         for wt in [repo, *wts]:
@@ -620,14 +620,14 @@ class TestSiblingsAndWorktrees(test_ctx.Base):
         # two nodes of the same repository, one per worktree: independent queue, history and state
         for n, s in zip(nodes, ("wt1 state", "wt2 state")):
             (n / "x.py").write_text(s)
-            self.assertEqual(ctx.sync_node(n, [str(n / "x.py")], [], Fake(fake_output(s))), "ok")
-        self.assertEqual([ctx.read_doc(n).summary for n in nodes], ["wt1 state", "wt2 state"])
-        self.assertNotEqual(ctx.history_dir(nodes[0]), ctx.history_dir(nodes[1]))
-        self.assertNotEqual(ctx.path_key(nodes[0]), ctx.path_key(nodes[1]))
-        self.assertEqual([ctx.get_status(n)["path"] for n in nodes], [str(n.resolve()) for n in nodes])
+            self.assertEqual(ctx.sync.sync_node(n, [str(n / "x.py")], [], Fake(fake_output(s))), "ok")
+        self.assertEqual([ctx.doc.read_doc(n).summary for n in nodes], ["wt1 state", "wt2 state"])
+        self.assertNotEqual(ctx.doc.history_dir(nodes[0]), ctx.doc.history_dir(nodes[1]))
+        self.assertNotEqual(ctx.paths.path_key(nodes[0]), ctx.paths.path_key(nodes[1]))
+        self.assertEqual([ctx.doc.get_status(n)["path"] for n in nodes], [str(n.resolve()) for n in nodes])
         (nodes[1] / "y.py").write_text("more")
-        self.assertEqual(ctx.sync_node(nodes[1], [str(nodes[1] / "y.py")], [], Fake(fake_output("wt2 again"))), "ok")
-        self.assertEqual([ctx.read_doc(n).summary for n in nodes], ["wt1 state", "wt2 again"])
+        self.assertEqual(ctx.sync.sync_node(nodes[1], [str(nodes[1] / "y.py")], [], Fake(fake_output("wt2 again"))), "ok")
+        self.assertEqual([ctx.doc.read_doc(n).summary for n in nodes], ["wt1 state", "wt2 again"])
         for wt in [repo, *wts]:  # after the syncs too (the session's own files are untracked, not CONTEXT.md)
             self.assertNotIn("CONTEXT.md", self.git("status", "--porcelain", "--untracked-files=all", cwd=wt))
 
