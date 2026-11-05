@@ -7,11 +7,11 @@ from typing import Iterator
 
 from .paths import (
     BUBBLE_LOCK_WAIT, BUILTIN_IGNORE, FULL_ENTRIES, MARKER, MAX_ENTRIES, MAX_SUBS, MAX_SUMMARY,
-    ORDER, PLACEHOLDERS, SEC_SUBS, SHORT_WIDTH, SUBS_PREFIX, atomic_write, clip, dirlock, log, real,
-    root, self_cmd, state_dir, under,
+    PLACEHOLDERS, REQUIRED, SEC_DECISIONS, SEC_SUBS, SHORT_WIDTH, SUBS_PREFIX, atomic_write,
+    clip, dirlock, log, real, root, self_cmd, state_dir, under,
 )
 from .filters import instruction_shaped
-from .doc import is_auto, parse, read_doc, write_doc
+from .doc import active_decisions, is_auto, parse, read_doc, write_doc
 
 
 def ignore_patterns() -> list[str]:
@@ -218,14 +218,15 @@ def build_subs(node: str | Path) -> str:
             s = " ".join(child_doc.summary.split())
             if instruction_shaped(s):
                 s = "(summary filtered)"
-        items.append((k.name, s))
+        n = 0 if child_doc.private else active_decisions(child_doc.sections.get(SEC_DECISIONS, ""))
+        items.append((k.name, s, f" · decisions: {n}" if n else ""))
     if not items:
         return ""
 
     def fmt(shown, full):
         """The section body with `shown` entries, the first `full` of them unclipped."""
-        lines = [f"- **{name}/** — {text if k < full else clip(text, SHORT_WIDTH)}"
-                 for k, (name, text) in enumerate(items[:shown])]
+        lines = [f"- **{name}/** — {text if k < full else clip(text, SHORT_WIDTH)}{tail}"
+                 for k, (name, text, tail) in enumerate(items[:shown])]
         if len(items) > shown:
             lines.append(f"- … and {len(items) - shown} more (`{self_cmd()} show --tree`)")
         return SUBS_PREFIX + "\n" + "\n".join(lines)
@@ -251,7 +252,7 @@ def refresh_subs(node: str | Path) -> bool:
     if computed:
         d.meta["summary"] = computed
         d.meta["summary-source"] = "computed"
-    for s in ORDER:
+    for s in REQUIRED:
         d.sections.setdefault(s, "")
     return write_doc(node, d, snapshot=False)
 

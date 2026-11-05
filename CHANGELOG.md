@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.1.0 - 2026-11-05
+
+Continuity over long chains of sessions (the three weaknesses of the long-run benchmark).
+
+- New `Decisions` section, owned by code: the rewriter's `decision:` lines are appended (a line with the same
+  words is a duplicate); `decision superseded: #<n> -> <new>` (or the old text, single best match) marks one
+  line; the model can never remove a decision. At most 15 lines and 1000 characters: hand edits are kept as
+  written, but over the cap the oldest lines go first, hand-written ones included. `ctx undo` restores the whole
+  previous file, Decisions included. Injected right after the summary (capped like Notes); the parent's
+  Subfolders line shows ` · decisions: N`. Files without the section need no migration. The whole-file cap is
+  now 5000 characters.
+- Dated, cautious injection: the injected text starts with the time of the last sync that changed files (or of
+  the read-only bootstrap, flagged as a hint; nothing for a node never synced) and asks to verify in the files
+  before acting on `Next`.
+- Sync-light: a session that changed no file but whose reports have a line starting with `decision:`, `next:`
+  or `prochaine étape:`, or at least two blocker words (`light_words` in `~/.ctx/config`), gets a reduced
+  rewrite of Next and Decisions only (log line `sync-light`); Status and summary are untouched.
+- Fix: on systems where /bin/sh is dash (Debian, Ubuntu, WSL), a running session could be synced by another
+  session's start before its last messages were recorded; the CLI pid is now resolved through the shell wrapper
+  and a live pid keeps the session alive.
+
 ## 1.0.0 - 2026-11-05
 
 First public release.

@@ -12,10 +12,12 @@ from pathlib import Path
 from typing import NamedTuple
 
 from .paths import (
-    EDIT_TOOLS, LAUNCHER, LIVE_WINDOW, MSG_CHARS, MSG_KEEP, atomic_write, log, read_json, real,
-    stamp, state_dir,
+    EDIT_TOOLS, LAUNCHER, LIVE_WINDOW, MSG_CHARS, MSG_KEEP, PID_LIVE_MAX, atomic_write, log,
+    read_json, real, stamp, state_dir,
 )
 from .filters import redact
+
+SHELLS = {"sh", "dash", "bash", "zsh", "env"}  # wrappers between the CLI and the hook process
 
 
 def session_dir_of(sid: str) -> Path:
@@ -123,12 +125,27 @@ def proc_start(pid: int) -> str:
         return ""
 
 
+def cli_pid() -> int:
+    """The CLI that runs the hooks: our parent past the `sh -c` wrapper (dash does not exec, and
+    that short-lived sh made running sessions look dead, caught up before their Stop hook)."""
+    pid = os.getppid()
+    for _ in range(3):
+        try:
+            raw = Path(f"/proc/{pid}/stat").read_text()
+        except OSError:
+            return pid  # no /proc (macOS): the parent
+        if raw[raw.index("(") + 1:raw.rindex(")")] not in SHELLS:
+            return pid
+        pid = int(raw[raw.rindex(")") + 2:].split()[1])
+    return pid
+
+
 def record_pid(session_dir: Path) -> None:
-    """Remember the CLI process that launches the hooks (our parent).
+    """Remember the CLI process that launches the hooks (cli_pid).
 
     Its start time is kept too, as a guard against pid reuse.
     """
-    pid = os.getppid()
+    pid = cli_pid()
     if pid <= 1:
         return
     line = f"{pid} {proc_start(pid)}".strip()
@@ -173,13 +190,13 @@ def sess_mtime(session_dir: Path) -> float:
 def session_live(session_dir: Path) -> bool:
     """True while the session is still running.
 
-    Not ended, CLI process not known dead, and active within LIVE_WINDOW (fallback).
+    Not ended and CLI process alive (idle at most PID_LIVE_MAX); without a pid file, active within
+    LIVE_WINDOW.
     """
-    if (session_dir / "ended").exists():
+    if (session_dir / "ended").exists() or pid_dead(session_dir):
         return False
-    if pid_dead(session_dir):
-        return False
-    return time.time() - sess_mtime(session_dir) < LIVE_WINDOW
+    window = PID_LIVE_MAX if (session_dir / "pid").is_file() else LIVE_WINDOW
+    return time.time() - sess_mtime(session_dir) < window
 
 
 def catch_up(exclude: object = None, spawn: bool = True, skip_live: bool = False,

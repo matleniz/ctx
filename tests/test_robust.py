@@ -187,9 +187,9 @@ ctx.sync_session("s1", lambda s, p: ({fake_output()!r}, {{"in": 1, "out": 1, "se
             (sd / "pid").write_text(f"{me} {ctx.proc_start(me)}\n")
         self.assertTrue(ctx.session_live(sa))
         self.assertEqual(ctx.catch_up(spawn=False, skip_live=True), [])  # nothing lost, nothing stolen while live
-        # computer sleeps 8 h: A's timestamps are shifted, B woke up and kept working
+        # computer sleeps 13 h (past the 12 h a live pid protects): A's timestamps are shifted, B kept working
         for x in [sa, *sa.iterdir()]:
-            os.utime(x, (time.time() - 8 * 3600,) * 2)
+            os.utime(x, (time.time() - 13 * 3600,) * 2)
         self.assertFalse(ctx.session_live(sa))
         found = ctx.catch_up(spawn=False, skip_live=True)
         self.assertEqual(found, ["A"])
@@ -224,7 +224,7 @@ ctx.sync_session("s1", lambda s, p: ({fake_output()!r}, {{"in": 1, "out": 1, "se
             self.skipTest(LINUX_ONLY + " (pid reuse check; the rest of this test ran)")
         (sc / "pid").write_text(f"{me} 1\n")
         self.assertTrue(ctx.pid_dead(sc))
-        self.ev("R10", "8 h sleep (timestamps shifted): A caught up once, B (live) untouched, no cross-attribution, "
+        self.ev("R10", "13 h sleep (timestamps shifted): A caught up once, B (live) untouched, no cross-attribution, "
                        "post-resume edit synced alone\nWSL stop (CLI pid killed): C not live immediately, caught up; "
                        f"reused pid (start time mismatch) -> dead\n{self.logtail(4)}")
 

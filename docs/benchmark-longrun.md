@@ -197,13 +197,70 @@ Rewrites: 84 k tokens in and 35 k out over the 6 ctx chains, which is at most 0.
   only part of chapter 2 was done.
 - The judge is blind to the arm, but a 1-turn answer, or a reply that quotes a sync time, can hint at ctx.
 - In 3 of 60 ctx sessions, the first rewrite reported "no session reports available": the last assistant messages
-  had not been collected. The rewrite then only knew which file was touched. Reported, not investigated here.
+  had not been collected. The rewrite then only knew which file was touched. Cause found and fixed in 1.1.0 (see
+  run 2 below).
+
+## Run 2 (ctx 1.1.0): the three weaknesses addressed
+
+Same harness, scenarios, prompts, model and judge; only the ctx arm was re-run (3 chains x 2 scenarios x 10
+sessions = 60 Haiku sessions, 60 Sonnet judge calls). The arm without ctx is the published one above: the
+comparison crosses two runs on different days, with 3 chains each, so it is indicative only.
+
+What changed in ctx: a `Decisions` section owned by code (the model can only add to it or mark a line superseded),
+an injection that starts with the state's date and provenance and asks to verify in the files before acting on
+`Next`, a reduced rewrite of `Next` and `Decisions` (sync-light) for sessions that changed no file but report a
+decision, a blocker or a next step, and the collection fix: the pid that protects a running session was the
+short-lived `sh` that runs the hook command, so a session started in another chain (one shared state directory)
+caught up a running session before its Stop hook had stored the last messages.
+
+| scenario | arm | tokens in per chain (incl. cache) | turns | continuity /9 | session 7 continuity | session 7 turns | D1 compliance at end | redo |
+|---|---|---|---|---|---|---|---|---|
+| course-notebooks | ctx 1.1.0 | 3.77 M ± 0.47 | 97 ± 1 | 7.10 | 3.33 | 6.7 | 0.67 | 0 |
+| course-notebooks | ctx 1.0.0 | 3.51 M ± 0.46 | 78 ± 6 | 6.47 | 3.33 | 1.0 | 0.47 | 0 |
+| course-notebooks | without ctx | 4.44 M ± 0.34 | 94 ± 5 | 6.63 | 5.67 | 8.0 | 0.20 | 0 |
+| small-project | ctx 1.1.0 | 3.72 M ± 0.46 | 93 ± 6 | 6.17 | 5.67 | 6.0 | 1.0 | 0 |
+| small-project | ctx 1.0.0 | 3.72 M ± 0.32 | 89 ± 19 | 5.90 | 4.33 | 2.3 | 1.0 | 0 |
+| small-project | without ctx | 4.98 M ± 0.25 | 125 ± 1 | 5.20 | 3.67 | 10.3 | 1.0 | 0 |
+
+The user's decision D1 in `CONTEXT.md` (chains out of 3 whose file names it, after each session; it is given at
+session 4 in `course-notebooks` and session 3 in `small-project`):
+
+| session | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| course-notebooks, 1.1.0 | 0 | 0 | 0 | 2 | 2 | 2 | 2 | 2 | 3 | 3 |
+| course-notebooks, 1.0.0 | - | - | - | recorded in 1 chain, dropped at session 5 | | 0 | 0 | 0 | 0 | 0 |
+| small-project, 1.1.0 | 0 | 0 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 |
+| small-project, 1.0.0 | - | - | recorded in 1 chain, dropped at session 6 | | | 0 | 0 | 0 | 0 | 0 |
+
+Active lines in `Decisions` grew to 7.7 (course) and 7.0 (project) at session 10; the cap of 15 lines / 1000
+characters was hit in 3 course chains (7 old lines dropped, logged).
+
+- **Decisions now survive.** Once recorded, the decision was never lost; in 1 of 3 `small-project` chains the
+  rewriter never recorded it. The refactor session ("the convention we
+  decided", session 9) left all files compliant in 2 of 3 course chains (1 of 6 chains before, in either arm);
+  its continuity rose to 6.00 (4.33 with 1.0.0, 3.00 without ctx). In the third course chain the rewriter recorded
+  "no type hints" as the convention for chapter 1, a wrong reading of D1 that the code then kept faithfully.
+- **Resume still trusts `Next` on `course-notebooks`.** At session 7 the agent now opens the files (6.7 turns
+  instead of 1) but all 3 chains still give "run the checks" from `Next` as the next step instead of exercise 3.1
+  and omit D1 from the answer: 3.33, unchanged. On `small-project` the resume answer improved (5.67 vs 4.33, 3.67
+  without ctx). The dated line made resumes more careful and more expensive, not more correct.
+- **Sessions without edits are recorded.** 4 sessions went through sync-light (session 7 in both scenarios) and 11
+  were skipped as before. No `CONTEXT.md` mentioned missing session reports (3 of 60 rewrites before).
+- **Cost.** Tokens and turns per chain rose on `course-notebooks` (3.77 M, 97 turns) to the level of the arm without
+  ctx; on `small-project` they stayed at the 1.0.0 level, well under the arm without ctx. The rewrites used 118 k
+  tokens in and 63 k out (at most 0.43 USD at uncached Haiku list price), against 84 k / 35 k before.
+- Continuity is higher than both earlier arms in both scenarios (7.10 and 6.17), but the gaps are of the order of
+  the spread between chains, from two separate runs: not a solid improvement.
+
+Cost of run 2: 60 Haiku sessions 2.84 USD, 60 Sonnet judge calls 1.01 USD. The real `~/.ctx/log` did not change
+during the run (size checked before and after; no line mentions the test home).
 
 ## Reproduce
 
 ```
 python3 ctx.py install-hooks claude --emit /tmp/ctx-long/hooks.json
 python3 tests/integration/run_longrun.py run --home /tmp/ctx-long/home --hooks /tmp/ctx-long/hooks.json --out /tmp/ctx-long/out
+# run 2 (ctx arm only): add --arms A --max-sessions 70
 python3 tests/integration/run_longrun.py judge --home /tmp/ctx-long/home --out /tmp/ctx-long/out
 python3 tests/integration/run_longrun.py summary --out /tmp/ctx-long/out
 ```

@@ -5,9 +5,10 @@ This page is the one place for files, size caps, configuration and environment.
 
 ## Files
 
-- `<folder>/CONTEXT.md`: a summary (max 300 characters) and the sections "Status" (max 20 lines),
-  "Next" (max 5), "Notes" (yours, never rewritten; 800 characters max injected) and "Subfolders".
-  The file never exceeds 4000 characters. In a git repository it is added to `.git/info/exclude`, so it is not
+- `<folder>/CONTEXT.md`: a summary (max 300 characters) and the sections, in this order, "Status" (max 20 lines),
+  "Next" (max 5), "Decisions" (optional, absent = empty; owned by code, max 15 lines and 1000 characters),
+  "Notes" (yours, never rewritten; 800 characters max injected) and "Subfolders".
+  The file never exceeds 5000 characters. In a git repository it is added to `.git/info/exclude`, so it is not
   committed by accident.
 - `~/.ctx/`: `log` (one line per event, rotated at 1 MB to `log.1`), `declined`, `sessions/`, `history/`
   (last 10 versions of each node, for `ctx undo`), `state/` and `config`.
@@ -19,7 +20,19 @@ shows its children's summaries as quotes. With 8 children or fewer each is shown
 
 ## Section titles
 
-The titles are English (`Status`, `Next`, `Notes`, `Subfolders`); the content follows the language of your sessions.
+The titles are English (`Status`, `Next`, `Decisions`, `Notes`, `Subfolders`); the content follows the language of your sessions.
+
+## Decisions
+
+The model never writes this section. After each rewrite, every `decision: <text>` line of its output is appended
+(as `- <text>`) and removed from Status, unless an active line has the same words (token sets without stop words,
+Jaccard similarity of at least 0.8). The model sees the active lines numbered `#1`, `#2`...;
+`decision superseded: #<n> -> <new>` marks line n `(superseded)` and adds the new one. With the old text instead
+of `#<n>`, only the single best active match is marked, and only when its similarity is at least 0.6. Over 15
+lines or 1000 characters, the oldest superseded line goes first, then the oldest active one (log line
+`decision-dropped`), hand-written lines included. You may edit the section by hand: it is kept as is, like Notes.
+`ctx undo` restores the whole previous file, Decisions included. The parent's Subfolders line of the node ends
+with ` · decisions: N` when N active decisions exist (a count, never their text).
 
 ## Nodes
 
@@ -29,8 +42,13 @@ The titles are English (`Status`, `Next`, `Notes`, `Subfolders`); the content fo
   A container without child nodes yet is fine. A node whose parent folder is not a node is fine too: its summary does
   not bubble above it, and `doctor` says so on an `info:` line (not a problem) with the `ctx init --no-absorb <parent>` that would
   collect it.
-- **Injection.** Only the summary and the four known sections are injected, inside a `<ctx-data>` frame; other header
-  keys and sections are dropped.
+- **Injection.** Only the summary and the five known sections are injected, inside a `<ctx-data>` frame, Decisions
+  first (right after the summary, before Status); other header keys and sections are dropped. The text starts with one
+  line giving the time of the last sync that changed files (`worked` in the node's state): "written after the
+  last session that changed files here", or, while only read-only bootstraps happened, the bootstrap time and
+  "bootstrapped from a read-only look, never corrected by work: treat as a hint"; then "Verify in the files
+  before acting on Next." A node never synced gets no such line. Decisions is capped at 1000 characters there,
+  like Notes at 800.
 - **Absorb.** A new node takes all work below it, up to the next node: a session in a subfolder without a node
   receives that node's context. `ctx init --no-absorb` (for containers such as `~` or `projects`) restricts it to its
   own folder; subfolders without a node under such a container get the "create a context?" question (never asked under
@@ -44,7 +62,10 @@ The titles are English (`Status`, `Next`, `Notes`, `Subfolders`); the content fo
 
 ## Configuration and environment
 
-- `~/.ctx/config`: `model` (default `haiku`; a value starting with `-` is refused) and `rewriter` (only `claude`;
+- `~/.ctx/config`: `light_words` (comma-separated blocker words; a session without file changes gets a
+  sync-light when its reports hold at least two of them as whole words; default
+  `blocked,failed,cannot,bloqué,échec,impossible,refused`; a line starting with `decision:`, `next:` or
+  `prochaine étape:` always counts), `model` (default `haiku`; a value starting with `-` is refused) and `rewriter` (only `claude`;
   anything else is reported by `ctx doctor` and fails the sync with a clear message). There is no timeout key: a
   model call is cut after 100 s, and a node's sync deadline is `2 x 100 + 30` seconds (two calls and a margin).
 - `CTX_OFF=1`: every hook is a no-op (any value except empty, `0`, `false`, `no`, `off`).
@@ -55,12 +76,16 @@ The titles are English (`Status`, `Next`, `Notes`, `Subfolders`); the content fo
 ## Behaviour details
 
 - **Work detection.** A session that routed no file to a node does not rewrite it (log line `skip`), except the first
-  time (placeholder summary), so a read-only "take stock" session can fill a new node.
+  time (placeholder summary), so a read-only "take stock" session can fill a new node, and except when its reports
+  hold a line starting with `decision:`, `next:` or `prochaine étape:`, or two `light_words` words: then a reduced rewrite (log line
+  `sync-light`) sees only the old Next and Decisions and the reports, and may change only Next and Decisions.
 - **Edits through Bash.** Hooks do not see them: at sync, files of the routed (or launch) node modified since the
   session start, and not in `.ctxignore`, `.git` or a child node, are added (log line `bash-scan`). The heuristic can
   also pick up a file edited by another process in the same window.
-- **Liveness.** Hooks record the CLI's pid and start time in `~/.ctx/sessions/<id>/pid`; the next session start syncs at
-  once a session whose process is gone. Without a pid file, a session active in the last 600 seconds counts as running.
+- **Liveness.** Hooks record the CLI's pid (past the `sh -c` that runs the hook command) and start time in
+  `~/.ctx/sessions/<id>/pid`; the next session start syncs at
+  once a session whose process is gone. A session whose CLI process is alive (same start time) counts as running
+  whatever its activity, for at most 12 hours idle. Without a pid file, a session active in the last 600 seconds counts as running.
 - **Trimming.** Over-long model output is trimmed, not rejected: a summary is cut at the last space to 300 characters
   with `…`, a section keeps its first whole lines within its caps (log line `trimmed`). A rewrite that copies a
   subfolder's own summary line is rejected and retried once, then the old file is kept.

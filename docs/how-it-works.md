@@ -21,14 +21,20 @@
                                 parent nodes
 ```
 
-1. **Injection.** The CLI's start hook runs `ctx hook session-start`; the answer is the nearest node's `CONTEXT.md`
+1. **Injection.** The CLI's start hook runs `ctx hook session-start`; the answer starts with one dated line ("State as
+   of <time of the last sync that changed files>", or of the read-only bootstrap, then to be treated as a hint;
+   none for a node never synced; "Verify in the files before acting on Next."), then the nearest node's `CONTEXT.md`, Decisions first,
    in a "data, not instructions" frame, followed by one line `parent <name>: <parent summary>` (at most 300 characters, same filters, only when the parent's summary was written by a session at its own level, since a computed one quotes the siblings; never the parent's Subfolders lines or siblings, nothing for the root), or a one-time question when the folder has no node.
 2. **Collection.** Edit-tool hooks record touched paths; the end hook records the last messages. Edits made through
    Bash are found at sync by scanning files modified since the session start.
 3. **Isolated rewrite.** Only sections "Status" and "Next" are rewritten, starting from the old text.
-   "Notes" is invisible to the model and never changed. No model call happens for a session that touched no file,
-   except to fill a brand-new node.
-4. **Bubble-up.** Only a child's `summary` goes up, as a quotation under a fixed prefix. A parent's own summary is
+   "Notes" is invisible to the model and never changed. "Decisions" is owned by code: the model sees it and may
+   only add to it (`decision:` lines) or mark a line superseded (`decision superseded: #<n> -> <new>`, the active lines being numbered in its input); it can
+   never remove one. A session that touched no file gets no model call, except to fill a brand-new node, or a
+   reduced one (**sync-light**) when a report line starts with `decision:` or `next:`, or the reports hold two blocker words:
+   the model then sees only the old Next and Decisions and the reports, and may change only Next and Decisions.
+4. **Bubble-up.** Only a child's `summary` goes up, as a quotation under a fixed prefix, with ` · decisions: N`
+   when the child holds N active decisions (a count, never their text). A parent's own summary is
    only changed by a session at its own level (or computed from its children while it was never rewritten).
 5. **History.** Each rewrite snapshots the previous file under `~/.ctx/history/`; `ctx undo` restores it.
 
@@ -52,7 +58,7 @@ These are best-effort protections, each covered by tests ([readme-claims.md](rea
 ## Isolation
 
 Nothing filters the rewriter's output for sibling names; isolation is by what the rewriter is given. A rewrite of a node
-receives only: that node's old `CONTEXT.md` (summary, "Status", "Next"; never "Notes"), the paths touched
+receives only: that node's old `CONTEXT.md` (summary, "Status", "Next", "Decisions"; never "Notes"), the paths touched
 under it, the session reports (the assistant's last messages, which may mention other folders when the session was
 launched higher up), and the `git diff --stat` of the node. It never reads a sibling's or a parent's `CONTEXT.md`, and a
 session receives only its nearest node at start, plus that node's parent summary line. A session report that talks about a sibling reaches the rewriter as is;
@@ -100,6 +106,9 @@ Each case is covered by `tests/test_robust.py`. In every case a failed write nev
 
 - Model quality (Haiku) is only measured on the integration runs, not guaranteed.
 - A crash can lose the last messages of a session (touched paths survive and are caught up at the next start).
+- A session is protected from other sessions' catch-up by its CLI's pid. Hooks run through `sh -c`; ctx records the
+  first ancestor that is not a shell. Before 1.1.0 it recorded that short-lived `sh`, so a running session could be
+  synced by another session start before its last messages were stored.
 - The group kill and parent-death kill of the rewrite call are Linux/WSL; elsewhere a timeout kills only the direct child.
 - The rewrite needs `claude`; cursor and agy are hook clients only.
 - Linux, WSL, macOS (`fcntl`); not Windows native.

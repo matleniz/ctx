@@ -131,6 +131,11 @@ def sections(text):
     return d.sections.get(c.SEC_STATUS, ""), d.sections.get(c.SEC_NEXT, ""), len((text or "").encode())
 
 
+def sections_decisions(text):
+    import ctx as c
+    return c.parse(text or "").sections.get("Decisions", "")
+
+
 def classify_line(scen, line, items, decided):
     """-> ('true'|'false'|'other', [claims]). A clause (split on ';') claims each item it names: pending if it has a
     pending word, done otherwise. A decision clause is true iff a decision was taken."""
@@ -160,12 +165,18 @@ def context_accuracy(scen, text, items, decided):
         counts[k] += 1
         mentioned |= {c[0] for c in claims}
         detail.append({"line": ln, "class": k, "claims": claims})
+    # the code-owned Decisions section (absent before 1.1.0) also counts as mentioning the decision
+    dec = [ln.strip() for ln in sections_decisions(text).splitlines() if ln.strip()]
+    if any(re.search(DECISION_RE[scen], ln.lower()) for ln in dec):
+        mentioned.add("decision")
     facts = [i for i in ORDER[scen] if items.get(i)] + (["decision"] if decided else [])
     missing = [f for f in facts if f not in mentioned]
     first_undone = next((i for i in NEXT_ORDER[scen] if not items.get(i)), None)
     next_ok = bool(first_undone and re.search(ITEM_RE[scen][first_undone], nxt.lower()))
     return {**counts, "missing": len(missing), "missing_items": missing, "facts": len(facts), "lines": len(lines),
-            "size": size, "next_target": first_undone, "next_ok": next_ok, "detail": detail}
+            "size": size, "next_target": first_undone, "next_ok": next_ok, "detail": detail,
+            "decision_lines": sum(1 for ln in dec if not ln.endswith("(superseded)")),
+            "decision_in_file": "decision" in mentioned}
 
 
 def progress(scen, session, rec):
@@ -390,7 +401,7 @@ def run_chain(scen, arm, rep, a, spec, budget):
             ctxt = after.get("CONTEXT.md", "")
             ti, to, ms = sync_cost(line)
             rec["rewrite"] = {"tokens_in": ti, "tokens_out": to, "model_secs": ms,
-                              "kind": (re.search(r" (sync|skip|sync-fail) ", line or "") or [None, "none"])[1]}
+                              "kind": (re.search(r" (sync|sync-light|skip|sync-fail) ", line or "") or [None, "none"])[1]}
             rec["context_md"] = ctxt
             rec["context_accuracy"] = context_accuracy(scen, ctxt, ca.get("items", {}), bool(decisions))
         (od / f"s{s['n']:02d}.json").write_text(json.dumps(rec, indent=1, ensure_ascii=False))

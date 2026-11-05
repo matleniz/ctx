@@ -8,11 +8,12 @@ import sys
 from pathlib import Path
 
 from .paths import (
-    HOOK_DEADLINE, INJECT_DISCOVER, INJECT_NODE, INJECT_NONE, MAX_INJECT, MAX_NOTES, ORDER,
-    SEC_NOTES, Alarm, clean, clip, deadline, log, real, self_cmd, stamp, under,
+    Alarm, HOOK_DEADLINE, INJECT_DISCOVER, INJECT_NODE, INJECT_NONE, MAX_DECISIONS_CHARS,
+    MAX_INJECT, MAX_NOTES, ORDER, SEC_DECISIONS, SEC_NEXT, SEC_NOTES, SEC_STATUS, clean, clip,
+    deadline, log, real, self_cmd, stamp, under,
 )
 from .filters import filter_lines, instruction_shaped, redact
-from .doc import Doc, is_auto, read_doc, render, status_line
+from .doc import Doc, get_status, is_auto, read_doc, render, status_line
 from .tree import accepts, is_declined, is_ignored, nearest_node, parent_node
 from .sessions import (
     abandoned, catch_up, collect_start, collect_stop, collect_tool, session_dir_of, spawn_sync,
@@ -113,12 +114,12 @@ def build_injection(cwd: str | Path, cmd: str | None = None) -> tuple[str | None
 
 
 def injected_doc(node: Path) -> Doc:
-    """The node's document as injected: Notes capped, sections and summary filtered, allow-list."""
+    """The node's document as injected: Notes/Decisions capped, all filtered, allow-list."""
     d = read_doc(node)
     sections = dict(d.sections)
-    notes = sections.get(SEC_NOTES, "")
-    if len(notes) > MAX_NOTES:
-        sections[SEC_NOTES] = notes[:MAX_NOTES] + "\n[truncated]"
+    for name, cap in ((SEC_NOTES, MAX_NOTES), (SEC_DECISIONS, MAX_DECISIONS_CHARS)):
+        if len(sections.get(name, "")) > cap:
+            sections[name] = sections[name][:cap] + "\n[truncated]"
     # hand-edited content (Notes, a doctored summary) is untrusted too: same filters as model output
     nfilt = 0
     for name in ORDER:
@@ -131,8 +132,8 @@ def injected_doc(node: Path) -> Doc:
         summ, nfilt = "(summary filtered)", nfilt + 1
     if nfilt:
         log("filtered", node=node, count=nfilt, why="injection-time filter on CONTEXT.md")
-    # allow-list: only the summary and the four known sections reach the model; any other header key
-    # or section is dropped
+    # allow-list: only the summary and the known sections (ORDER) reach the model; any other
+    # header key or section is dropped
     d.meta = {"summary": summ}
     d.sections = {k: v for k, v in sections.items() if k in ORDER}
     return d
@@ -170,7 +171,15 @@ def parent_line(node: Path) -> str:
 def format_injection(node: Path, cwd: Path, d: Doc, given_up: list[tuple[str, str]],
                      cmd: str) -> str:
     """Frame the rendered document: header line, <ctx-data> block (capped at MAX_INJECT), footer."""
-    body = render(d) + parent_line(node)
+    # dated line: last sync with files (`worked`), or bootstrap (False); none if never synced
+    s = get_status(node) or {}
+    w = s.get("worked")
+    dated = "" if "status" not in s else (f"State as of {str(w or s.get('time', '?'))[:16]}, " + (
+        "bootstrapped from a read-only look, never corrected by work: treat as a hint."
+        if w is False else "written after the last session that changed files here.")
+        + " Verify in the files before acting on Next.\n")
+    # decisions first: right after the summary, before Status
+    body = render(d, order=[SEC_DECISIONS, SEC_STATUS, SEC_NEXT, SEC_NOTES]) + parent_line(node)
     body = body.replace("</ctx-data", "<\\/ctx-data")
     near = "" if node == cwd else f" (closest node to {cwd})"
     head = (f"[ctx] Context of folder {node}{near} — {status_line(node)}. "
@@ -179,10 +188,10 @@ def format_injection(node: Path, cwd: Path, d: Doc, given_up: list[tuple[str, st
         head += (f" Sync abandoned (session {sid}, cause in the data): "
                  f"`{cmd} sync --session {sid}` to retry.")
     foot = f"Detail of a subfolder: `{cmd} show <subfolder>`."
-    room = MAX_INJECT - len(head) - len(foot) - 40
+    room = MAX_INJECT - len(dated) - len(head) - len(foot) - 40
     if len(body) > room:
         body = body[:room] + "\n[truncated]"
-    return f"{head}\n<ctx-data>\n{body}</ctx-data>\n{foot}"
+    return f"{dated}{head}\n<ctx-data>\n{body}</ctx-data>\n{foot}"
 
 
 def hook_guarded() -> bool:

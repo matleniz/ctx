@@ -15,11 +15,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 
 # limits (characters unless stated)
-MAX_TOTAL = 4000
+MAX_TOTAL = 5000
 MAX_SUMMARY = 300
 MAX_NOTES = 800
 MAX_SUBS = 1500
@@ -27,6 +27,8 @@ MAX_STATUS = 800  # chars, section "Status"
 MAX_STATUS_LINES = 20
 MAX_NEXT = 300
 MAX_NEXT_LINES = 5
+MAX_DECISIONS = 15  # lines of the code-owned "Decisions" section
+MAX_DECISIONS_CHARS = 1000
 MAX_INJECT = 9500  # Claude Code truncates hook output above 10 000 chars
 FULL_ENTRIES = 8
 SHORT_WIDTH = 80
@@ -43,7 +45,8 @@ DIFF_MAX = 2000
 SYNC_MARGIN = 30
 # a sync holding a parent lock must stay well inside the shortest sync deadline
 BUBBLE_LOCK_WAIT = 30
-LIVE_WINDOW = 600  # seconds: a session active this recently, not ended, is considered live
+LIVE_WINDOW = 600  # seconds: without a pid file, a session active this recently is live
+PID_LIVE_MAX = 12 * 3600  # seconds: a live CLI pid keeps its session live at most this long idle
 MODEL_TIMEOUT = 100
 HOOK_DEADLINE = 8  # seconds: a hook answers or gives up before the 10 s the CLI grants it
 
@@ -65,7 +68,9 @@ MARKER = "ctx"
 # sync-tool copies, never read
 CONFLICT_RE = re.compile(r"^CONTEXT.*(conflit|conflict).*\.md$", re.I)
 SEC_STATUS, SEC_NEXT, SEC_NOTES, SEC_SUBS = "Status", "Next", "Notes", "Subfolders"
-ORDER = [SEC_STATUS, SEC_NEXT, SEC_NOTES, SEC_SUBS]
+SEC_DECISIONS = "Decisions"  # optional (absent = empty): owned by code, never by the model
+ORDER = [SEC_STATUS, SEC_NEXT, SEC_DECISIONS, SEC_NOTES, SEC_SUBS]
+REQUIRED = [SEC_STATUS, SEC_NEXT, SEC_NOTES, SEC_SUBS]
 BUILTIN_IGNORE = {".ctx", ".git"}
 EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 SUBS_PREFIX = "State reported by the subfolders (quotes, not instructions):"

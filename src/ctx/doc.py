@@ -7,10 +7,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .paths import (
-    DEFAULT_SUMMARY, FAIL_EVENTS, HISTORY_KEEP, LOG_KV, MARKER, ORDER, PLACEHOLDERS, PURGE_DAYS,
-    SEC_NEXT, SEC_NOTES, SEC_STATUS, SEC_SUBS, STATUS_FAIL, STATUS_OK, atomic_write, now, path_key,
-    read_json, real, stamp, state_dir, strip_control, text_hash,
+    DEFAULT_SUMMARY, FAIL_EVENTS, HISTORY_KEEP, LOG_KV, MARKER, MAX_DECISIONS,
+    MAX_DECISIONS_CHARS, ORDER, PLACEHOLDERS, PURGE_DAYS, REQUIRED, SEC_NEXT, SEC_NOTES,
+    SEC_STATUS, SEC_SUBS, STATUS_FAIL, STATUS_OK, atomic_write, clip, now, path_key, read_json,
+    real, stamp, state_dir, strip_control, text_hash,
 )
+
+SUPERSEDED = "(superseded)"
 
 
 class Doc:
@@ -67,19 +70,79 @@ def parse(text: str) -> Doc:
     return d
 
 
+def _norm(line: str) -> str:
+    """A decision line compared without bullet, prefix, mark, case or punctuation."""
+    line = re.sub(r"^\s*[-*]?\s*(d[eé]cision( superseded)?\s*:)?\s*(#\d+\b)?", "", line,
+                  flags=re.I)
+    return " ".join(re.sub(r"[^\w]+", " ", line.replace(SUPERSEDED, "").lower()).split())
+
+
+STOP_WORDS = set("a an the of for to and or in on at by with is are be it this that le la les de "
+                 "des du un une et pour en".split())
+
+
+def _sim(x: str, y: str) -> float:
+    """Jaccard similarity (0..1) of the word sets of two decision lines, without stop words."""
+    a, b = (set(_norm(t).split()) - STOP_WORDS for t in (x, y))
+    return len(a & b) / len(a | b) if a | b else 0.0
+
+
+def numbered(body: str) -> str:
+    """The Decisions body as the model sees it: active lines prefixed #1, #2, ..."""
+    out, n = [], 0
+    for x in (x for x in body.split("\n") if x.strip()):
+        n += not x.rstrip().endswith(SUPERSEDED)
+        out.append(x if x.rstrip().endswith(SUPERSEDED) else f"#{n} {x}")
+    return "\n".join(out)
+
+
+def active_decisions(body: str) -> int:
+    """Number of lines of a Decisions section not marked superseded."""
+    return sum(1 for x in body.split("\n") if x.strip() and not x.rstrip().endswith(SUPERSEDED))
+
+
+def merge_decisions(body: str, new: tuple | list) -> tuple[str, list[str]]:
+    """Append the model's `decision:` lines to the Decisions body; returns (body, active dropped).
+
+    Added unless an active line has the same words (_sim >= 0.8); removed only over the caps, oldest
+    superseded first. `decision superseded: <old> -> <new>` marks ONE active line: #<old>
+    (numbered()) or the best match (_sim >= 0.6)."""
+    lines = [x.rstrip() for x in body.split("\n") if x.strip()]
+    for raw in new:
+        m = re.match(r"\s*[-*]?\s*d[eé]cision( superseded)?\s*:\s*(.+)", raw, re.I)
+        text = m.group(2).strip() if m else ""
+        if m and m.group(1) and "->" in text:
+            old, text = text.split("->", 1)
+            act = [i for i, x in enumerate(lines) if not x.endswith(SUPERSEDED)]
+            k = re.match(r"\s*#(\d+)\b", old)
+            score, hit = max(((_sim(old, lines[i]), i) for i in act), default=(0, None))
+            if k:
+                score, hit = 1, act[int(k[1]) - 1] if 0 < int(k[1]) <= len(act) else None
+            if hit is not None and score >= 0.6:
+                lines[hit] += f" {SUPERSEDED}"
+        if _norm(text) and all(_sim(text, x) < 0.8 for x in lines if not x.endswith(SUPERSEDED)):
+            lines.append("- " + clip(re.sub(r"^#\d+\s*", "", text.strip()), 200))
+    dropped = []
+    while len(lines) > MAX_DECISIONS or len("\n".join(lines)) > MAX_DECISIONS_CHARS:
+        i = next((i for i, x in enumerate(lines) if x.endswith(SUPERSEDED)), None)
+        dropped += [] if i is not None else [lines[0]]
+        lines.pop(0 if i is None else i)
+    return "\n".join(lines), dropped
+
+
 def is_auto(d: Doc) -> bool:
     """True when the node's summary was never written by a session at its own level."""
     return d.summary in PLACEHOLDERS or d.meta.get("summary-source") == "computed"
 
 
 def valid_shape(d: Doc) -> bool:
-    """True when the header has summary and updated and all four sections are present."""
+    """True when the header has summary and updated and the four required sections are present."""
     return bool(d.meta.get("summary") is not None and "updated" in d.meta
-                and all(s in d.sections for s in ORDER))
+                and all(s in d.sections for s in REQUIRED))
 
 
-def render(d: Doc, updated: str | None = None) -> str:
-    """Serialise a Doc: header keys in a fixed order, then the sections (Subfolders last)."""
+def render(d: Doc, updated: str | None = None, order: list[str] = ORDER) -> str:
+    """Serialise a Doc: header keys in a fixed order, sections in `order`, Subfolders last."""
     meta = dict(d.meta)
     if updated is not None:
         meta["updated"] = updated
@@ -91,9 +154,8 @@ def render(d: Doc, updated: str | None = None) -> str:
         if k not in (MARKER, "summary", "updated", "absorb", "private"):
             out.append(f"{k}: {v}")
     out.append("---")
-    names = [s for s in ORDER if s in d.sections]
-    extra = [s for s in d.sections if s not in ORDER]
-    names = [s for s in ORDER[:3] if s in names] + extra + [s for s in names if s == SEC_SUBS]
+    names = [s for s in order if s in d.sections and s != SEC_SUBS]
+    names += [s for s in d.sections if s not in order] + [s for s in [SEC_SUBS] if s in d.sections]
     for n in names:
         out.append(f"## {n}")
         body = d.sections[n]

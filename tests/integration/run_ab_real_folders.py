@@ -425,7 +425,7 @@ def wait_sync(node, offset, timeout=240):
             with open(log_path(), "rb") as f:
                 f.seek(offset)
                 for ln in f.read().decode("utf-8", "replace").splitlines():
-                    if needle in ln and re.search(r" (sync|skip|sync-fail) ", ln):
+                    if needle in ln and re.search(r" (sync|sync-light|skip|sync-fail) ", ln):
                         time.sleep(2)  # let the bubble-up finish
                         return ln
         except OSError:

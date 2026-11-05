@@ -885,7 +885,7 @@ class TestReviewFixes(Base):
             if state["n"] == 0:  # drain sees nothing; a racing syncer then enqueues and fails to get the lock
                 state["n"] = 1
                 ctx.enqueue(ctx.real(n), [str(node / "late.py")], [])
-                return [], [], []
+                return [], [], [], False
             return real_drain(n)
         ctx.sync.drain = drain  # patched where sync_node uses it
         try:
