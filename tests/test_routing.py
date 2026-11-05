@@ -12,15 +12,15 @@ class Routing(test_ctx.Base):
         (d / "main.py").write_text("x = 1\n")
         return d
 
-    def test_file_under_a_container_goes_to_its_git_root_made_a_node(self):
-        d = self.repo("projects/tools/cli")  # tools/ is a plain folder, projects/ a container
+    def test_repository_under_a_container_is_logged_as_unrouted_never_made_a_node(self):
+        d = self.repo("projects/tools/cli")
         out = ctx.sync.route([str(d / "src" / "a.py"), str(d / "main.py")], str(self.home))
-        self.assertEqual(list(out), [d])
-        self.assertTrue(ctx.has_ctx(d))
-        self.assertIn("CONTEXT.md", (d / ".git" / "info" / "exclude").read_text())
-        self.assertIn("- **tools/cli/** — ", self.doc("projects").sections[ctx.SEC_SUBS])
+        self.assertEqual(out, {})
+        self.assertFalse(ctx.has_ctx(d))
         log = (self.home / ".ctx" / "log").read_text()
-        self.assertIn("auto-init", log)
+        self.assertIn("unrouted", log)
+        self.assertIn(f"{d} (1)", log)
+        self.assertNotIn("auto-init", log)
 
     def test_declined_repository_is_logged_as_unrouted(self):
         d = self.repo("projects/fleet")
@@ -75,21 +75,6 @@ class ContainerSync(test_ctx.Base):
         long = "word " * 50
         ctx.sync_node(n, [str(n / "a.py")], [], Fake(test_ctx.fake_output(summary=long.strip())))
         self.assertGreater(len(self.doc("courses").summary), 200)
-
-
-class NextOrder(unittest.TestCase):
-    def test_recheck_lines_go_after_new_work(self):
-        body = "- Run the tests to confirm the fix.\n- Implement average in stats.py."
-        self.assertEqual(ctx.rewriter.checks_last(body),
-                         "- Implement average in stats.py.\n- Run the tests to confirm the fix.")
-
-    def test_running_the_tests_counts_as_a_check(self):
-        body = "- Run `python3 -m unittest test_cli -v` and record the result.\n- Implement --sum in cli.py."
-        self.assertTrue(ctx.rewriter.checks_last(body).startswith("- Implement --sum"))
-
-    def test_only_checks_or_no_check_unchanged(self):
-        for body in ("- Verify the fix.", "- Implement average.\n- Add --json."):
-            self.assertEqual(ctx.rewriter.checks_last(body), body)
 
 
 class AgentState(test_ctx.Base):
@@ -149,6 +134,90 @@ class AgentState(test_ctx.Base):
         self.assertIn("update `## Status`", ctx.build_injection(self.p("courses/ml-intro"))[0])
         self.assertIn(str(self.p("courses/ml-intro") / "CONTEXT.md"), ctx.build_injection(self.p("courses/ml-intro"))[0])
         self.assertNotIn("update `## Status`", ctx.build_injection(self.p("courses"))[0])
+
+
+class AgentStateDefects(AgentState):
+    """Defects found by the adversarial battery and review (5/11): the agent can only change state."""
+
+    def seed(self, rel="courses/ml-intro"):
+        n = self.p(rel)
+        d = ctx.read_doc(n)
+        d.sections["Notes"] = "- NOTE: never publish on PyPI"
+        d.sections["Decisions"] = "- stdlib only, no click"
+        d.sections["Status"], d.sections["Next"] = "- done: ex1", "- ex2 in ex2.py"
+        d.meta["summary"] = "ex1 done; next ex2"
+        ctx.write_doc(n, d)  # ctx's own version, recorded
+        return n
+
+    def test_wiping_notes_decisions_and_header_is_ignored(self):
+        n = self.seed()
+        (n / "CONTEXT.md").write_text("## Status\n- done: app.py --name\n\n## Next\n- add --verbose\n")
+        self.assertTrue(ctx.has_ctx(n))  # still a node without its header
+        fake = Fake()
+        ctx.sync_node(n, [str(n / "app.py"), str(n / "CONTEXT.md")], [], fake)
+        self.assertEqual(fake.calls, [])
+        t = (n / "CONTEXT.md").read_text()
+        self.assertTrue(t.startswith("---\nctx: 1\n"))
+        self.assertIn("never publish on PyPI", t)
+        self.assertIn("stdlib only, no click", t)
+        self.assertIn("- done: app.py --name", t)
+
+    def test_session_in_one_node_cannot_rewrite_another_nodes_state(self):
+        a, b = self.seed("courses/ml-intro"), self.seed("courses/algebra")
+        before = ctx.read_doc(b).sections["Status"]
+        d = ctx.read_doc(b)
+        d.sections["Status"] = "- done: algebra is finished"
+        d.sections["Notes"] = "- NOTE: never publish on PyPI\n- added from ml-intro"
+        (b / "CONTEXT.md").write_text(ctx.render(d))
+        files = [str(a / "x.py"), str(b / "CONTEXT.md")]
+        self.assertEqual(list(ctx.sync.route(files, str(a))), [a])
+        ctx.sync.restore_state("s1", files, str(a))
+        self.assertEqual(ctx.read_doc(b).sections["Status"], before)
+        self.assertIn("added from ml-intro", ctx.read_doc(b).sections["Notes"])
+        self.assertIn("state-restored", (self.home / ".ctx" / "log").read_text())
+
+    def test_bubble_from_a_child_does_not_cancel_the_adoption(self):
+        par = self.seed("projects/site")
+        child = par / "docs"
+        child.mkdir(exist_ok=True)
+        self.run_ctx("init", str(child))
+        d = ctx.read_doc(par)
+        d.sections["Status"] = "- done: site deployed"
+        d.meta["summary"] = "site deployed"
+        (par / "CONTEXT.md").write_text(ctx.render(d))
+        fake = Fake()
+        ctx.sync.sync_targets("s1", {child: [str(child / "a.md")], par: [str(par / "CONTEXT.md")]},
+                              ["done"], fake)
+        self.assertEqual(ctx.read_doc(par).sections["Status"], "- done: site deployed")
+        self.assertRegex((self.home / ".ctx" / "log").read_text(), r"sync node=\S*/site .*writer=agent")
+        self.assertIn("writer=agent", (self.home / ".ctx" / "log").read_text())
+
+    def test_container_state_file_is_never_adopted(self):
+        c = self.p("courses")
+        self.assertEqual(ctx.sync.route([str(c / "CONTEXT.md")], str(c)), {})
+
+    def test_notes_only_edit_costs_no_model_call(self):
+        n = self.seed()
+        d = ctx.read_doc(n)
+        d.sections["Notes"] += "\n- one more note"
+        (n / "CONTEXT.md").write_text(ctx.render(d))
+        fake = Fake()
+        ctx.sync.sync_targets("s1", {n: [str(n / "CONTEXT.md")]}, ["ok"], fake)
+        self.assertEqual(fake.calls, [])
+        self.assertIn("one more note", ctx.read_doc(n).sections["Notes"])
+
+    def test_parent_is_the_node_that_lists_the_child(self):
+        deep = self.p("projects/a/b/c/deep")
+        hidden = self.p("projects/.hidden/x")
+        for d in (deep, hidden):
+            d.mkdir(parents=True)
+            self.run_ctx("init", str(d))
+        self.assertIsNone(ctx.tree.parent_node(deep))
+        self.assertIsNone(ctx.tree.parent_node(hidden))
+        ok = self.p("projects/a/b/near")
+        ok.mkdir(parents=True)
+        self.run_ctx("init", str(ok))
+        self.assertEqual(ctx.tree.parent_node(ok), self.p("projects"))
 
 
 class ContainerInjection(test_ctx.Base):

@@ -69,11 +69,15 @@ output check is that a rewrite copying a subfolder's own summary line is rejecte
 
 The agent writes first. The injection of a project node (not a container) ends with ctx's request to update the
 node's Status, Next and `summary:` line before finishing, and to state decisions as `decision:` lines in the final
-message. When the session edited that `CONTEXT.md` and changed Status or Next (compared with what ctx last wrote),
-the sync adopts it with no model call (log `sync … writer=agent`): same validator as a model answer, decisions from
-the reports merged into Decisions, Notes kept, a summary the agent left unchanged rebuilt from the first Status and
-Next lines. Otherwise, or when the agent's text fails the validator (`agent-state-rejected`), the model rewrites.
-An edit made outside the session (another machine, an editor) is only the base of the model rewrite.
+message. When the session edited that `CONTEXT.md` and changed Status or Next (compared with the last version ctx
+wrote, kept in its state), the sync adopts them with no model call (log `sync … writer=agent`), through the same
+validator as a model answer; a summary the agent left unchanged is rebuilt from the first Status and Next lines.
+Only those three fields are taken: everything else starts from ctx's last version, so an agent cannot remove the
+header, the Decisions or the Notes (an edit that empties Notes or Decisions is ignored; one that adds to them is
+kept). Otherwise, or when the agent's text fails the validator (`agent-state-rejected`), the model rewrites. A
+session that edits the `CONTEXT.md` of another node gets that node's state put back (`state-restored`, Notes and
+Decisions kept); an edit of Notes only costs no model call. An edit made outside any session (another machine, an
+editor) is the base of the next model rewrite.
 
 Claude is the only rewriter (`REWRITERS` in `src/ctx/rewriter.py` has one row, `cli_rewriter` is the single call). Content rules: the prompt asks for state with file paths, `decision:` lines and a concrete next step; the
 validator rejects "structure" lines (contains / list of / tree / N files / three file names without a state verb)

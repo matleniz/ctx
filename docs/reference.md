@@ -40,12 +40,13 @@ with ` · decisions: N` when N active decisions exist (a count, never their text
   `CONTEXT.md` is foreign, even one in ctx's own format: ignored everywhere, never rewritten, listed by `ctx doctor` on an `info:` line (not a problem);
   `ctx init` refuses that folder until you move or rename the file.
   A container without child nodes yet is fine. Folders between two nodes need not be nodes: a node reports to the
-  closest node above it (`~/projects/tools/cli` to `~/projects`, listed there as `tools/cli/`; a parent looks at most
-  3 levels down). Only a node with no node at all above it gets an `info:` line from `doctor` (not a problem), with
+  closest node above it that lists it (`~/projects/tools/cli` to `~/projects`, listed there as `tools/cli/`; a
+  parent looks at most 3 levels down and never into hidden folders). Only a node with no node at all above it gets an `info:` line from `doctor` (not a problem), with
   the `ctx init --no-absorb <root>` that would collect it.
-- **Repositories.** A file that no node takes (under a container, or in no node at all) goes to the root of its
-  git repository, which becomes a node on the spot (log line `auto-init`), unless that folder is ignored, declined
-  or holds a foreign `CONTEXT.md`. Anything left is logged as `unrouted` with its folders, never dropped silently.
+- **Unrouted files.** A file no node takes (under a container, or in no node at all) is logged as `unrouted`
+  with its folders and the `ctx init <folder>` hint, never dropped silently; ctx never creates a node by itself.
+- **Lost header.** A `CONTEXT.md` ctx wrote before stays a node even if an agent or an editor removed its
+  `ctx: 1` header; the next sync puts the header back.
 - **Injection.** Only the summary and the five known sections are injected, inside a `<ctx-data>` frame, Decisions
   first (right after the summary, before Status); other header keys and sections are dropped, and so are empty or
   placeholder sections and a computed summary (it only repeats the Subfolders lines). The text starts with one

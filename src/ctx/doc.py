@@ -201,8 +201,11 @@ def save_history(node: str | Path, text: str) -> None:
         old.unlink()
 
 
-def write_doc(node: str | Path, d: Doc, snapshot: bool = True) -> bool:
-    """Atomic write; skip when unchanged ignoring `updated`. Returns True if written."""
+def write_doc(node: str | Path, d: Doc, snapshot: bool = True, record: bool = True) -> bool:
+    """Atomic write; skip when unchanged ignoring `updated`. Returns True if written.
+
+    record=False keeps the remembered version (note_hash): an edit not synced yet stays detectable.
+    """
     p = Path(node) / "CONTEXT.md"
     old = p.read_text(encoding="utf-8", errors="replace") if p.exists() else None
     if old is not None:
@@ -214,7 +217,8 @@ def write_doc(node: str | Path, d: Doc, snapshot: bool = True) -> bool:
         save_history(node, old)
     text = render(d, updated=stamp())
     atomic_write(p, text)
-    note_hash(node, text)
+    if record:
+        note_hash(node, text)
     return True
 
 
@@ -228,11 +232,10 @@ def set_status(node: str | Path, ok: bool, err: str = "", **extra: object) -> No
     atomic_write(state_files / f"{path_key(node)}.json", json.dumps(s))
 
 
-def state_hash(text: str) -> str:
-    """Hash of the Status and Next sections only: a change there is new state, not a Notes edit."""
-    d = parse(text)
-    return text_hash(d.sections.get(SEC_STATUS, "").strip() + "\0"
-                     + d.sections.get(SEC_NEXT, "").strip())
+def written_doc(node: str | Path) -> "Doc | None":
+    """The CONTEXT.md text ctx itself last wrote for `node`, parsed; None when unknown."""
+    text = (get_status(node) or {}).get("written")
+    return parse(text) if text else None
 
 
 def note_hash(node: str | Path, text: str) -> None:
@@ -242,8 +245,7 @@ def note_hash(node: str | Path, text: str) -> None:
     """
     s = get_status(node) or {"path": str(real(node))}  # no sync result yet: none is invented
     s["hash"] = text_hash(text)
-    s["state_hash"] = state_hash(text)
-    s["summary_written"] = parse(text).summary
+    s["written"] = text  # the base of the next sync: an agent cannot erase Notes, header, Decisions
     (state_dir() / "state").mkdir(parents=True, exist_ok=True)
     atomic_write(state_dir() / "state" / f"{path_key(node)}.json", json.dumps(s))
 

@@ -9,11 +9,11 @@ from .paths import (
     BUBBLE_LOCK_WAIT, BUILTIN_IGNORE, CHILD_DEPTH, ENTRY_SUMMARY, FULL_ENTRIES, MARKER,
     MAX_ENTRIES, MAX_SUBS, MAX_SUMMARY,
     PLACEHOLDERS, REQUIRED, SEC_DECISIONS, SEC_SUBS, SHORT_WIDTH, SUBS_PREFIX, atomic_write,
-    clip, dirlock, log, real, root, self_cmd, stamp, state_dir, under,
+    clip, dirlock, log, real, root, self_cmd, stamp, state_dir, text_hash, under,
 )
 from .filters import instruction_shaped
 from .doc import (
-    active_decisions, is_auto, new_doc, note_hash, parse, read_doc, render, write_doc,
+    active_decisions, get_status, is_auto, new_doc, note_hash, parse, read_doc, render, write_doc,
 )
 
 
@@ -67,7 +67,10 @@ def has_ctx(d: str | Path) -> bool:
     ignored.
     """
     p = Path(d) / "CONTEXT.md"
-    return p.is_file() and MARKER in header_meta(p)
+    if not p.is_file():
+        return False
+    # a node whose header an agent or an editor removed is still a node: ctx wrote it before
+    return MARKER in header_meta(p) or bool((get_status(d) or {}).get("written"))
 
 
 def is_foreign(d: str | Path) -> bool:
@@ -137,10 +140,9 @@ def accepts(node: Path | None, d: str | Path) -> bool:
 
 
 def parent_node(node: str | Path) -> Path | None:
-    """The closest ancestor that is a node (never above the root), else None.
+    """The node whose Subfolders lists `node` (closest node above, within reach), else None.
 
-    Folders in between that are not nodes are skipped, so a node deep under a container still
-    reports to it.
+    Same rule as child_nodes: across plain folders, at most CHILD_DEPTH levels, no hidden folder.
     """
     node = real(node)
     r = root()
@@ -150,7 +152,7 @@ def parent_node(node: str | Path) -> Path | None:
         if not under(p, r):
             return None
         if has_ctx(p) and not is_ignored(p):
-            return p
+            return p if node in child_nodes(p) else None
         if p == r:
             return None
     return None
@@ -304,6 +306,7 @@ def refresh_subs(node: str | Path) -> bool:
     """Rewrite Subfolders of `node` if its content changed. Caller holds the lock. Returns changed?
     """
     d = read_doc(node)
+    d.meta.setdefault(MARKER, "1")
     new = build_subs(node)
     computed = computed_summary(node) if is_auto(d) else ""
     same_subs = d.sections.get(SEC_SUBS, "") == new and SEC_SUBS in d.sections
@@ -315,7 +318,10 @@ def refresh_subs(node: str | Path) -> bool:
         d.meta["summary-source"] = "computed"
     for s in REQUIRED:
         d.sections.setdefault(s, "")
-    return write_doc(node, d, snapshot=False)
+    # an edit not synced yet (agent, editor) must stay detectable: no record over it
+    known = (get_status(node) or {}).get("hash")
+    mine = not known or known == text_hash((Path(node) / "CONTEXT.md").read_text(errors="replace"))
+    return write_doc(node, d, snapshot=False, record=mine)
 
 
 def bubble(node: str | Path) -> None:
@@ -397,14 +403,6 @@ def git_exclude(d: str | Path) -> bool:
     return True
 
 
-def git_root(d: str | Path) -> Path | None:
-    """The top folder of the git repository or worktree holding `d` (a `.git` entry), or None."""
-    d = real(d)
-    for p in [d, *d.parents]:
-        if (p / ".git").exists():
-            return p
-    return None
-
 
 def create_node(d: Path, absorb: bool = True) -> str:
     """Create a node at `d`: '' on success, else the reason it was not created.
@@ -427,21 +425,3 @@ def create_node(d: Path, absorb: bool = True) -> str:
     log("init", node=d, git_excluded=excluded)
     bubble(d)
     return ""
-
-
-def auto_node(d: str | Path) -> Path | None:
-    """The node for work in `d` when no node takes it: the git repository root, created if needed.
-
-    None when `d` is not in a repository under the root, or the repository root is ignored,
-    declined or holds a foreign CONTEXT.md.
-    """
-    top = git_root(d)
-    r = root()
-    if top is None or top == r or not under(top, r) or is_ignored(top) or is_declined(top):
-        return None
-    if has_ctx(top):
-        return top
-    if create_node(top) == "":
-        log("auto-init", node=top, why="git repository with no node taking its files")
-        return top
-    return None

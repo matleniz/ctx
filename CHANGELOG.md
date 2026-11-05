@@ -4,15 +4,17 @@
 
 Real use showed work under containers getting lost and containers injecting noise.
 
-- A file no node takes goes to the root of its git repository, made a node on the spot (`auto-init`), unless
-  ignored, declined or foreign; anything left is logged as `unrouted` instead of being dropped silently.
-- A node reports to the closest node above it, across plain folders (`tools/cli/` in its container's Subfolders).
+- A file no node takes is logged as `unrouted` (with the `ctx init` hint) instead of being dropped silently.
+- A node reports to the closest node above it that lists it, across plain folders (`tools/cli/` in its
+  container's Subfolders; at most 3 levels, no hidden folder).
 - Computed summaries: children most recently updated first, each cut on a word boundary, then `also: <names>`
   (was: children in name order, cut mid-word at 300 characters).
 - The agent writes its own state: a project node's injection asks the agent to update Status, Next and the
   summary of its `CONTEXT.md` before finishing; when the session did, the sync adopts it without a model call
-  (`writer=agent`), through the same validator. The model rewrite stays as the fallback.
-- Next names the next unfinished work: re-check lines ("run the tests to confirm") go after task lines.
+  (`writer=agent`), through the same validator. Only summary, Status and Next are taken: the header, Notes and
+  Decisions start from ctx's last version, so an agent cannot remove them; a node whose header was removed stays a
+  node. A session cannot change another node's state (`state-restored`). The model rewrite stays as the fallback.
+- Next names the next unfinished work, never a re-check of done work (rewriter rule).
 - Injection drops empty and placeholder sections and computed summaries; the Subfolders section is no longer
   injected twice.
 

@@ -347,27 +347,8 @@ def check_summary(summary: str, trims: list[str] | None) -> str:
     return summary
 
 
-# a Next line that only re-checks done work ("run the tests to confirm ...")
-RECHECK_RE = re.compile(r"\b(confirm|verify|re-?check|vérifier|confirmer)\b"
-                        r"|\b(run|lancer)\b.*\b(tests?|unittest|pytest)\b", re.I)
-
-
-def checks_last(body: str) -> str:
-    """Next with its re-check lines moved after the task lines: the first line names new work."""
-    lines = body.split("\n")
-    checks = [x for x in lines if RECHECK_RE.search(x)]
-    if not checks or len(checks) == len(lines):
-        return body
-    return "\n".join([x for x in lines if not RECHECK_RE.search(x)] + checks)
-
-
 def cap_sections(parts: dict[str, str], trims: list[str] | None) -> None:
-    """Reject an empty Status/Next; trim one over its line or character cap (noted in `trims`).
-
-    Next keeps new work first (checks_last).
-    """
-    if parts.get(SEC_NEXT):
-        parts[SEC_NEXT] = checks_last(parts[SEC_NEXT])
+    """Reject an empty Status/Next; trim one over its line or character cap (noted in `trims`)."""
     lim = {SEC_STATUS: (MAX_STATUS_LINES, MAX_STATUS), SEC_NEXT: (MAX_NEXT_LINES, MAX_NEXT)}
     for name, (max_lines, max_chars) in [x for x in lim.items() if x[0] in parts]:
         if not parts[name]:

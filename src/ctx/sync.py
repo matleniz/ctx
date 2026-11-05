@@ -10,17 +10,18 @@ from pathlib import Path
 from typing import Callable
 
 from .paths import (
-    Alarm, CONFLICT_RE, FILES_MAX, MAX_NEXT, MAX_NEXT_LINES, MAX_STATUS, MAX_STATUS_LINES,
+    Alarm, BUBBLE_LOCK_WAIT, CONFLICT_RE, EMPTY_BODIES, FILES_MAX, MARKER, MAX_NEXT,
+    MAX_NEXT_LINES, MAX_STATUS, MAX_STATUS_LINES, PLACEHOLDERS,
     MAX_SUMMARY, MAX_TOTAL, MODEL_TIMEOUT, MSG_KEEP, SCAN_MAX, SCAN_SKIP_DIRS, SCAN_SKIP_FILES,
     SCAN_SLACK, SEC_DECISIONS, SEC_NEXT, SEC_NOTES, SEC_STATUS, SEC_SUBS, SESSION_BUSY,
     SESSION_MISSING, SESSION_NOTHING, STATUS_FAIL, SYNC_FAIL, SYNC_MARGIN, SYNC_NONE, SYNC_OK,
-    SYNC_QUEUED, atomic_write, clip, deadline, dirlock, log, path_key, read_json, real, root,
+    SYNC_QUEUED, atomic_write, deadline, dirlock, log, path_key, read_json, real, root,
     set_session, stamp, state_dir, text_hash,
 )
 from .filters import redact
 from .doc import Doc, get_status, is_auto, merge_decisions, numbered, parse, read_doc, render
-from .doc import set_status, state_hash, write_doc
-from .tree import accepts, auto_node, bubble, build_subs, has_ctx, is_ignored, nearest_node
+from .doc import set_status, write_doc, written_doc
+from .tree import accepts, bubble, build_subs, has_ctx, is_ignored, nearest_node, word_clip
 from .sessions import Pending, session_dir_of, session_pending
 from .rewriter import (
     DECISION_RE, LIGHT_PROMPT, ModelOutput, SYSTEM_PROMPT, build_prompt, cli_rewriter, git_diffstat,
@@ -113,7 +114,7 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
     trims = []
     writer = "model"
     try:
-        output = adopt_agent_state(node, old, old_text, msgs, subs, trims) if own else None
+        output = adopt_agent_state(node, old, msgs, subs, trims) if own and not light else None
         if output is not None:
             writer, info = "agent", {"in": 0, "out": 0, "secs": 0}
         else:
@@ -141,34 +142,41 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
     return SYNC_OK
 
 
-def adopt_agent_state(node: Path, old: Doc, old_text: str, msgs: list[str], subs: str,
-                      trims: list[str]) -> ModelOutput | None:
-    """The state the agent of the session wrote into CONTEXT.md, validated; None: call the model.
+def agent_state_changed(node: str | Path, cur: Doc) -> bool:
+    """True when Status or Next of the file differ from what ctx last wrote."""
+    w = written_doc(node)
+    return w is not None and any(cur.sections.get(n, "").strip() != w.sections.get(n, "").strip()
+                                 for n in (SEC_STATUS, SEC_NEXT))
 
-    Called when the session edited the node's CONTEXT.md. Adopted when Status or Next differ from
-    what ctx last wrote (state_hash) and the file passes
-    the same checks as a model answer. `decision:` lines of the reports go to Decisions. A summary
-    the agent left unchanged is rebuilt from the first Status and Next lines.
+
+def adopt_agent_state(node: Path, cur: Doc, msgs: list[str], subs: str,
+                      trims: list[str]) -> ModelOutput | None:
+    """The state the agent of the session wrote into its node's CONTEXT.md; None: call the model.
+
+    Only summary, Status and Next are taken, through the validator of a model answer; `decision:`
+    lines of the reports go to Decisions; a summary the agent left unchanged is rebuilt from the
+    first Status and Next lines. Everything else comes from ctx's last version (merged_base).
     """
-    known = (get_status(node) or {}).get("state_hash")
-    if not known or known == state_hash(old_text):
+    if not agent_state_changed(node, cur):
         return None
-    status = old.sections.get(SEC_STATUS, "").strip()
-    nxt = old.sections.get(SEC_NEXT, "").strip()
-    summary = old.summary
-    prior = (get_status(node) or {}).get("summary_written")
-    if is_auto(old) or summary == prior:
+    status = cur.sections.get(SEC_STATUS, "").strip()
+    nxt = cur.sections.get(SEC_NEXT, "").strip()
+    if status in EMPTY_BODIES or nxt in EMPTY_BODIES:
+        log("agent-state-rejected", node=node, why="Status or Next left empty or placeholder")
+        return None
+    w = written_doc(node)
+    summary = " ".join(cur.summary.split())
+    if not summary or summary in PLACEHOLDERS or summary == w.summary:
         first = lambda body: body.split("\n")[0].lstrip("-* ").strip()  # noqa: E731
-        summary = clip(f"{first(status)}; next: {first(nxt)}", MAX_SUMMARY)
+        summary = word_clip(f"{first(status)}; next: {first(nxt)}", MAX_SUMMARY)
     decisions = "\n".join(x.strip() for m in msgs for x in DECISION_RE.findall(m))
     text = f"SUMMARY: {summary}\n## Status\n{status}\n## Next\n{nxt}\n{decisions}\n"
     try:
-        out = parse_model_output(text, subs, trims, figures=False)
+        return parse_model_output(text, subs, trims, figures=False)
     except ValueError as e:
         trims.clear()
         log("agent-state-rejected", node=node, why=e)
         return None
-    return out
 
 
 def check_external_edit(node: Path, old_text: str) -> None:
@@ -258,6 +266,8 @@ def apply_rewrite(node: Path, old: Doc, output: ModelOutput, trims: list[str],
     if notes_changed or cur.sections.get(SEC_STATUS) != old.sections.get(SEC_STATUS):
         log("edit-during-sync", node=node, why="hand edit during the model call: Notes kept, "
             "other sections rewritten, edit in history")
+    cur = merged_base(node, cur)
+    cur.meta.setdefault(MARKER, "1")
     if not light:
         cur.meta["summary"] = output.summary
         # rewritten at its own level: bubble-up no longer overwrites it
@@ -297,20 +307,20 @@ def needs_bootstrap(node: str | Path) -> bool:
 def route(files: list[str], launch_cwd: str) -> dict[Path, list[str]]:
     """Map touched files to nodes with the absorb rule: {node: [files]}.
 
-    A file no node takes goes to the root of its git repository, made a node if needed
-    (auto_node); the rest is logged as unrouted. An unrouted launch cwd is handled by the caller.
+    The CONTEXT.md of the launch node (a project node) stays in its list: the agent wrote its own
+    state (adopt_agent_state); one of another node is left out (restore_state). Files no node takes
+    are logged as unrouted. An unrouted launch cwd is handled by the caller.
     """
     out, unrouted = {}, collections.Counter()
+    launch = nearest_node(launch_cwd) if launch_cwd else None
     for f in files:
         d = real(os.path.dirname(f))
         if os.path.basename(f) == "CONTEXT.md":
-            if has_ctx(d):  # the agent wrote the node's state itself (adopt_agent_state)
+            if d == launch and accepts(launch, launch_cwd) and read_doc(d).absorb:
                 out.setdefault(d, []).append(f)
             continue
         n = nearest_node(d)
-        if n is None or not accepts(n, d):
-            n = None if is_ignored(d) else auto_node(d)
-        if n is not None:
+        if n is not None and accepts(n, d):
             out.setdefault(n, []).append(f)
         elif not is_ignored(d):
             unrouted[str(d)] += 1
@@ -318,6 +328,51 @@ def route(files: list[str], launch_cwd: str) -> dict[Path, list[str]]:
         top = ", ".join(f"{d} ({k})" for d, k in unrouted.most_common(3))
         log("unrouted", files=sum(unrouted.values()), dirs=len(unrouted), top=top,
             hint="no node takes them: `ctx init <folder>` (or the folder is declined)")
+    return out
+
+
+def restore_state(sid: str, files: list[str], launch_cwd: str) -> None:
+    """Put back ctx's last version of a node's state the session edited from another node.
+
+    Notes and Decisions edited by the session are kept (merged_base); Status, Next, summary and
+    header return to what ctx wrote.
+    """
+    launch = nearest_node(launch_cwd) if launch_cwd else None
+    for f in files:
+        d = real(os.path.dirname(f))
+        if os.path.basename(f) != "CONTEXT.md" or d == launch or not has_ctx(d):
+            continue
+        with dirlock(d, timeout=BUBBLE_LOCK_WAIT) as got:
+            if not got or written_doc(d) is None:
+                continue
+            doc = merged_base(d, read_doc(d))
+            doc.sections[SEC_SUBS] = build_subs(d)
+            if write_doc(d, doc):
+                log("state-restored", node=d, session=sid,
+                    why="edited from a session of another node: only Notes/Decisions kept")
+        bubble(d)
+
+
+def merged_base(node: str | Path, cur: Doc) -> Doc:
+    """What a sync starts from: ctx's last version, with the current Notes and Decisions.
+
+    Notes and Decisions are the human's (and code's): an edit that empties them is ignored; the
+    header (marker, absorb, private) follows the current file while it still has the marker.
+    """
+    w = written_doc(node)
+    if w is None:
+        return cur
+    out = Doc()
+    out.meta, out.sections = dict(w.meta), dict(w.sections)
+    for name in (SEC_NOTES, SEC_DECISIONS):
+        if cur.sections.get(name, "").strip():
+            out.sections[name] = cur.sections[name]
+    if MARKER in cur.meta:
+        for k in ("absorb", "private"):
+            if k in cur.meta:
+                out.meta[k] = cur.meta[k]
+            else:
+                out.meta.pop(k, None)
     return out
 
 
@@ -406,6 +461,7 @@ def _sync_session(sid, rewriter):
         if not new and not msgs:
             return SESSION_NOTHING
         targets = route(new, cwd)
+        restore_state(sid, new, cwd)
         launch = nearest_node(cwd) if cwd else None
         if launch is not None and not accepts(launch, cwd):
             launch = None
@@ -478,6 +534,9 @@ def sync_targets(sid: str, targets: dict, msgs: list[str], rewriter: Callable) -
     for node, node_files in sorted(targets.items(), key=lambda kv: -len(kv[0].parts)):
         # nothing of this session landed in the node: no call, unless light_worthy (sync-light);
         # a container is never bootstrapped by a session that only talked in it
+        work = [f for f in node_files if os.path.basename(f) != "CONTEXT.md"]
+        if len(work) < len(node_files) and not agent_state_changed(node, read_doc(node)):
+            node_files = work  # CONTEXT.md edited without new state (Notes): nothing to adopt
         container = not node_files and not read_doc(node).absorb
         light = not node_files and (container or not needs_bootstrap(node))
         if light and not light_worthy(msgs):
