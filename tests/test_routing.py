@@ -77,6 +77,17 @@ class ContainerSync(test_ctx.Base):
         self.assertGreater(len(self.doc("courses").summary), 200)
 
 
+class NextOrder(unittest.TestCase):
+    def test_recheck_lines_go_after_new_work(self):
+        body = "- Run the tests to confirm the fix.\n- Implement average in stats.py."
+        self.assertEqual(ctx.rewriter.checks_last(body),
+                         "- Implement average in stats.py.\n- Run the tests to confirm the fix.")
+
+    def test_only_checks_or_no_check_unchanged(self):
+        for body in ("- Verify the fix.", "- Implement average.\n- Add --json."):
+            self.assertEqual(ctx.rewriter.checks_last(body), body)
+
+
 class ContainerInjection(test_ctx.Base):
     def test_container_injects_no_placeholder_no_computed_summary_one_subfolders(self):
         ctx.sync_node(self.p("courses/ml-intro"), [str(self.p("courses/ml-intro/a.py"))], [],
