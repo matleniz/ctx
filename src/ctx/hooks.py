@@ -175,11 +175,12 @@ def parent_line(node: Path) -> str:
 # ctx's own request to the agent (outside the data frame): the agent that did the work writes the
 # state; the model rewrite after the session is only the fallback
 STATE_RULE = (
-    "\nBefore you finish, if you worked in this folder: update `## Status` (done / not done / "
+    "\nBefore you finish: if you worked in this folder, update `## Status` (done / not done / "
     "broken, with file paths, at most 20 lines), `## Next` (the next unfinished task and its file, "
     "at most 5 lines) and the `summary:` header line (one line, at most 300 characters) of {path} "
-    "yourself, in its language; leave Notes, Decisions and Subfolders as they are, and put each "
-    "decision taken as a line `decision: <what>, <why>` in your final message.")
+    "yourself, in its language, leaving Notes, Decisions and Subfolders as they are. In every "
+    "session, even one with no change, end your final message with one line `decision: <what>, "
+    "<why>` per decision you or the user took.")
 
 
 def format_injection(node: Path, cwd: Path, d: Doc, given_up: list[tuple[str, str]],

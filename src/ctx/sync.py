@@ -267,7 +267,7 @@ def apply_rewrite(node: Path, old: Doc, output: ModelOutput, trims: list[str],
         raise ValueError(f"result over {MAX_TOTAL} chars")
     if trims:
         log("trimmed", node=node, what="; ".join(trims))
-    return write_doc(node, cur)
+    return write_doc(node, cur, session_edit=own)
 
 
 def needs_bootstrap(node: str | Path) -> bool:
@@ -336,7 +336,7 @@ def restore_node(d: Path, sid: str, why: str) -> None:
             return
         doc = merged_base(d, read_doc(d))
         doc.sections[SEC_SUBS] = build_subs(d)
-        if write_doc(d, doc):
+        if write_doc(d, doc, session_edit=True):
             log("state-restored", node=d, session=sid, why=why)
     bubble(d)
 

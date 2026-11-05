@@ -5,6 +5,7 @@ import re
 import time
 from pathlib import Path
 
+from .filters import redact
 from .paths import (
     DEFAULT_SUMMARY, HISTORY_KEEP, MARKER, MAX_DECISIONS, MAX_DECISIONS_CHARS, ORDER, PLACEHOLDERS,
     PURGE_DAYS, REQUIRED, SEC_NEXT, SEC_NOTES, SEC_STATUS, SEC_SUBS, atomic_write, clip, now,
@@ -192,19 +193,20 @@ def save_history(node: str | Path, text: str) -> None:
     """Keep `text` as a previous version of the node (last HISTORY_KEEP kept)."""
     h = history_dir(node)
     h.mkdir(parents=True, exist_ok=True)
-    (h / "path").write_text(str(real(node)))
-    name = now().strftime("%Y%m%dT%H%M%S") + f"-{time.time_ns() % 1000000:06d}.md"
-    (h / name).write_text(text, encoding="utf-8")
+    atomic_write(h / "path", str(real(node)))  # 0600 under ~/.ctx whatever the process umask
+    name = now().strftime("%Y%m%dT%H%M%S") + f"-{time.time_ns() % 10**12:012d}.md"  # sortable
+    atomic_write(h / name, text)
     snaps = sorted(x for x in h.iterdir() if x.suffix == ".md")
     for old in snaps[:-HISTORY_KEEP]:
         old.unlink()
 
 
-def write_doc(node: str | Path, d: Doc, snapshot: bool = True, record: bool = True) -> bool:
+def write_doc(node: str | Path, d: Doc, snapshot: bool = True, record: bool = True,
+              session_edit: bool = False) -> bool:
     """Atomic write; skip when unchanged ignoring `updated`. Returns True if written.
 
     record=False keeps the remembered version (note_written): an edit not synced yet stays
-    detectable.
+    detectable. session_edit: the file on disk was edited by the session being synced.
     """
     p = Path(node) / "CONTEXT.md"
     old = p.read_text(encoding="utf-8", errors="replace") if p.exists() else None
@@ -216,7 +218,19 @@ def write_doc(node: str | Path, d: Doc, snapshot: bool = True, record: bool = Tr
                 note_written(node, old)
             return False
     if old is not None and snapshot:
-        save_history(node, old)
+        # `ctx undo` goes back one version: before a session's own edit of the file, ctx's last
+        # version (the edit is kept one step further); a hand edit made outside ctx is itself
+        # that last version. Edited text is stored with secrets redacted.
+        mine = (get_status(node) or {}).get("written")
+        edited = redact(old)[0]
+        if not mine or mine == old:
+            save_history(node, old)
+        elif session_edit:
+            save_history(node, edited)
+            save_history(node, mine)
+        else:
+            save_history(node, mine)
+            save_history(node, edited)
     text = render(d, updated=stamp())
     atomic_write(p, text)
     if record:

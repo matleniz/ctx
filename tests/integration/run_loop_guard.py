@@ -35,5 +35,6 @@ for cli in ("cursor", "agy"):
         sess = list((home / ".ctx/sessions").iterdir()) if (home / ".ctx/sessions").is_dir() else []
         out.append(f"{cli:7} CTX_INNER={'1' if inner else '-'}  cli_exit={p.returncode}  session-start log lines={len(starts)}  "
                    f"session dirs={len(sess)}  -> hook {'ran' if starts else 'exited at once'}")
+EVIDENCE.mkdir(parents=True, exist_ok=True)
 (EVIDENCE / "loopguard.txt").write_text("\n".join(out) + "\n")
 print("\n".join(out))

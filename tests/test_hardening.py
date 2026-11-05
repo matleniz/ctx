@@ -264,3 +264,36 @@ class PolicyLinesInOwnData(test_ctx.Base):
         inj = ctx.hooks.build_injection(n)[0]
         self.assertIn("never store raw CSVs", inj)
         self.assertIn("Always use the venv", inj)
+
+
+class HistoryAfterAgentEdit(test_ctx.Base):
+    """Night battery: undo after an adoption, and no raw secret in history."""
+
+    def agent_writes(self, n, status, nxt="- ex4 in ex4.py"):
+        d = ctx.doc.read_doc(n)
+        d.sections["Status"], d.sections["Next"] = status, nxt
+        (n / "CONTEXT.md").write_text(ctx.doc.render(d))
+
+    def test_undo_after_an_adoption_goes_back_before_the_session(self):
+        n = self.p("courses/ml-intro")
+        ctx.sync.sync_node(n, [str(n / "a.py")], ["did a"], Fake(fake_output(summary="before")))
+        before = (n / "CONTEXT.md").read_text()
+        self.agent_writes(n, "- done: ex3.py logistic regression")
+        ctx.sync.sync_node(n, [str(n / "ex3.py"), str(n / "CONTEXT.md")], ["ex3"], Fake())
+        self.assertIn("ex3.py logistic", (n / "CONTEXT.md").read_text())
+        self.assertEqual(self.run_ctx("undo", str(n))[0], 0)
+        self.assertEqual(ctx.doc.read_doc(n).summary, ctx.doc.parse(before).summary)
+        self.assertNotIn("ex3.py logistic", (n / "CONTEXT.md").read_text())
+
+    def test_raw_secret_written_by_the_agent_never_reaches_history(self):
+        n = self.p("courses/ml-intro")
+        ctx.sync.sync_node(n, [str(n / "a.py")], ["did a"], Fake(fake_output(summary="before")))
+        token = "ghp_" + "A" * 36
+        self.agent_writes(n, f"- done: deploy with {token}")
+        ctx.sync.sync_node(n, [str(n / "CONTEXT.md")], ["x"], Fake())
+        hist = "".join(x.read_text() for x in ctx.doc.history_dir(n).glob("*.md"))
+        self.assertNotIn(token, hist)
+        self.assertNotIn(token, (n / "CONTEXT.md").read_text())
+
+    def test_state_rule_asks_for_decisions_in_every_session(self):
+        self.assertIn("In every session", ctx.hooks.STATE_RULE)

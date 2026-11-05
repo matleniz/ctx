@@ -128,8 +128,8 @@ def step_uninstall(_model):
         keep = HOME / "CONTEXT.md"
         keep_bytes = keep.read_bytes()
         sh(str(link), "install-hooks", "--remove", "--yes")
-        ok = (hooked and link.is_symlink() and cfg.read_text() == '{"theme": "dark"}\n'
-              and keep.read_bytes() == keep_bytes)
+        ok = (hooked and link.is_symlink() and json.loads(cfg.read_text()) == {"theme": "dark"}
+              and keep.read_bytes() == keep_bytes)  # same settings, not byte-exact (1.2.0)
         r.write("5-uninstall.txt", "\n".join(out).replace(t, "$TMP") + f"\nhooks were added: {hooked}\nOK: {ok}\n")
     return ok
 
