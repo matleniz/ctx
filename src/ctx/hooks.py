@@ -180,7 +180,8 @@ STATE_RULE = (
     "at most 5 lines) and the `summary:` header line (one line, at most 300 characters) of {path} "
     "yourself, in its language, leaving Notes, Decisions and Subfolders as they are. In every "
     "session, even one with no change, end your final message with one line `decision: <what>, "
-    "<why>` per decision you or the user took.")
+    "<why>` per NEW decision you or the user took in this session (none: no such line; never "
+    "repeat a decision already listed).")
 
 
 def format_injection(node: Path, cwd: Path, d: Doc, given_up: list[tuple[str, str]],
