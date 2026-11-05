@@ -206,12 +206,42 @@ def log(event: str, **kv: object) -> None:
         pass
 
 
+# the user's umask, before private_umask(): files ctx writes outside ~/.ctx follow it
+_USER_UMASK = None
+
+
+def private_umask() -> None:
+    """Make what ctx creates private (dirs 0700, files 0600) and tighten an older ~/.ctx.
+
+    CONTEXT.md and the other files outside ~/.ctx keep the user's modes (atomic_write).
+    """
+    global _USER_UMASK
+    old = os.umask(0o077)
+    _USER_UMASK = old if _USER_UMASK is None else _USER_UMASK
+    with contextlib.suppress(OSError):
+        if state_dir().stat().st_mode & 0o077:
+            state_dir().chmod(0o700)
+
+
 def atomic_write(path: str | Path, text: str) -> None:
-    """Write `text` to `path` through a fsynced temporary file and a rename."""
+    """Write `text` to `path` through a fsynced temporary file and a rename.
+
+    The mode of an existing file is kept; a new file outside ~/.ctx gets the user's umask, one
+    inside it 0600.
+    """
     path = Path(path)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:6]}.tmp")
     try:
+        mode = path.stat().st_mode & 0o7777
+    except OSError:
+        umask = _USER_UMASK
+        if umask is None:  # private_umask() not called: the process umask is the user's
+            umask = os.umask(0o077)
+            os.umask(umask)
+        mode = 0o600 if under(path.resolve(), state_dir()) else 0o666 & ~umask
+    try:
         with open(tmp, "w", encoding="utf-8") as f:
+            os.fchmod(f.fileno(), mode)
             f.write(text)
             f.flush()
             os.fsync(f.fileno())

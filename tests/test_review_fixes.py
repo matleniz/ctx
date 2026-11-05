@@ -1,5 +1,4 @@
 """Review fixes: log/print sanitising, injected sync-fail cause, rotation lock, doctor --fix safety, config checks."""
-import json
 import multiprocessing
 import os
 import sys
@@ -106,18 +105,6 @@ class Review(test_ctx.Base):
         self.assertNotIn(str(gone / "proj"), left)
         self.assertIn(str(ghost), left)
         self.assertIn(str(far), left)
-
-    def test_first_sync_of_a_node_without_hash_logs_external_edit_unknown_once(self):
-        node = self.p("courses/ml-intro")
-        s = ctx.get_status(node) or {}
-        s.pop("hash", None)
-        ctx.atomic_write(self.home / ".ctx/state" / f"{ctx.path_key(node)}.json", json.dumps(s))
-        self.session("s1", "courses/ml-intro", ["courses/ml-intro/exos/ex1.py"], "ex1")
-        for sid in ("s1", "s2"):
-            if sid == "s2":
-                self.session("s2", "courses/ml-intro", ["courses/ml-intro/exos/ex2.py"], "ex2")
-            self.assertEqual(ctx.sync_session(sid, test_ctx.Fake(test_ctx.fake_output(summary=sid))), "ok")
-        self.assertEqual(self.log_text().count(" external-edit-unknown "), 1)
 
     def test_config_rejects_dash_model(self):
         self.config("model = --dangerously-skip-permissions\ntimeout = 99999\n")  # `timeout` is no longer a key

@@ -13,10 +13,18 @@ SECRET_RES = [
     re.compile(r"\bAIza[0-9A-Za-z_-]{30,}"),
     re.compile(r"\bglpat-[A-Za-z0-9_-]{16,}"),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{20,}"),
-    re.compile(r"(?i)\b(password|passwd|secret|api[_-]?key|token|mot de passe)\b\s*[:=]\s*\S{6,}"),
+    # password: ..., AWS_SECRET_ACCESS_KEY=..., db_password=...: the word, alone or in a snake name
+    re.compile(r"(?i)\b(\w+_)?(password|passwd|secret|api[_-]?key|token|mot de passe)(_\w+)?\s*"
+               r"[:=]\s*\S{6,}"),
+    re.compile(r"(?<=://)[^\s/:@]+:[^\s/@]+(?=@)"),  # the credentials of a URL, before its @host
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}"),
 ]
 
+# Rule: a line is dropped when it speaks TO a reader (you must, tell the user, please,
+# "Assistant:"), sets a policy (a line starting with always/never + verb), sets a precondition
+# (before editing anything), tries to override (ignore previous..., system prompt, from now on)
+# or holds a dangerous command (rm -rf, sudo, a download piped into a shell or interpreter).
+# State lines ("- not done: tests not run", "- next: add --sum to cli.py") match none of these.
 INSTR_RES = [re.compile(p, re.I) for p in [
     r"\b(ignore|disregard|forget)\b.{0,30}"
     r"\b(previous|prior|above|earlier|all|every|instructions?)\b",
@@ -33,7 +41,14 @@ INSTR_RES = [re.compile(p, re.I) for p in [
     r"\bfrom\s+now\s+on\b",
     r"\brm\s+-[a-z]*r[a-z]*f?\b",
     r"\bsudo\b",
-    r"\b(curl|wget)\b.*\|\s*(ba)?sh\b",
+    r"\b(curl|wget)\b.*\|\s*(sudo\s+)?((ba|z|da)?sh|python[\d.]*|perl|ruby|node)\b",
+    r"<\(\s*(curl|wget)\b",
+    r"\bplease\b|\bs.il\s+(te|vous)\s+pla[iî]t\b|\bmerci\s+de\b",
+    r"^\s*(?:[-*]\s*)?(always|never)\s+(?!(been|ran|run|worked|\w+ed)\b)\w+",
+    r"^\s*(?:[-*]\s*)?(toujours|jamais)\s+\w+(er|ir|re)\b",
+    r"\bbefore\s+(\w+ing\s+)?(anything|any\s+\w+|everything)\b",
+    r"\bavant\s+(de\s+\w+\s+)?(toute?|quoi que ce soit)\b",
+    r"^\s*(?:[-*]\s*)?((assistant|ai|claude)\s*,|assistant\s*:)",
     r"</?\s*(system|assistant|ctx-data|instructions?)\b",
     r"^\s*(IMPORTANT|ATTENTION|NOTE TO (THE )?(AI|ASSISTANT|AGENT))\s*:",
 ]]
@@ -76,14 +91,13 @@ def instruction_shaped(line: str) -> bool:
 
 
 def filter_lines(text: str) -> tuple[str, int]:
-    """Redact secrets and drop instruction-shaped lines.
+    """Redact secrets (whole text first: a PEM block spans lines), drop instruction-shaped lines.
 
     Returns (text, number of redactions and dropped lines).
     """
-    kept, n = [], 0
+    text, n = redact(text)
+    kept = []
     for line in text.split("\n"):
-        line, k = redact(line)
-        n += k
         if instruction_shaped(line):
             n += 1
         else:

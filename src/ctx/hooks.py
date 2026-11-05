@@ -148,8 +148,9 @@ def abandoned_under(node: Path) -> list[tuple[str, str]]:
     for sid, scwd, cause in abandoned():
         if not (scwd and under(scwd, node)):
             continue
-        # CLI stderr/JSON: untrusted, so data (inside the frame), filtered, short
-        cause, _k = redact(clean(cause, 80))
+        # CLI stderr/JSON: untrusted, so data (inside the frame), filtered, short; the CLI's own
+        # advice ("Please run /login") is cut, the cause stays
+        cause, _k = redact(re.split(r"(?i)\W*\bplease\b", clean(cause, 80))[0])
         safe_sid = re.sub(r"[^\w.-]", "", sid)[:40]
         out.append((safe_sid, "(filtered)" if instruction_shaped(cause) else cause))
     return out[:3]

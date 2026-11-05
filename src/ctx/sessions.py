@@ -40,8 +40,9 @@ def touch_session(event: dict, cwd: str | None = None) -> Path:
 
 
 def collect_start(event: dict) -> None:
-    """SessionStart: create the session's directory."""
-    touch_session(event)
+    """SessionStart: create the session's directory; a resumed session is no longer ended."""
+    with contextlib.suppress(OSError):
+        (touch_session(event) / "ended").unlink()
 
 
 def collect_tool(event: dict) -> None:
@@ -213,6 +214,9 @@ def catch_up(exclude: object = None, spawn: bool = True, skip_live: bool = False
         done_or_abandoned = not has_work or fails >= 2
         if time.time() - sess_mtime(session_dir) > 7 * 86400 and done_or_abandoned:
             # finished, or abandoned and left for a week
+            if has_work:
+                log("session-purged", session=session_dir.name, files=len(pending.files),
+                    reports=len(pending.msgs), why="abandoned and older than 7 days")
             shutil.rmtree(session_dir, ignore_errors=True)
             continue
         if (session_dir / "closed").exists() and not (session_dir / "pid").exists():

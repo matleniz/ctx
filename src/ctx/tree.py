@@ -7,26 +7,36 @@ from typing import Iterator
 
 from .paths import (
     BUBBLE_LOCK_WAIT, BUILTIN_IGNORE, CHILD_DEPTH, ENTRY_SUMMARY, FULL_ENTRIES, MARKER,
-    MAX_ENTRIES, MAX_SUBS, MAX_SUMMARY,
-    PLACEHOLDERS, REQUIRED, SEC_DECISIONS, SEC_SUBS, SHORT_WIDTH, SUBS_PREFIX, atomic_write,
-    clip, dirlock, log, real, root, self_cmd, stamp, state_dir, text_hash, under,
+    MAX_ENTRIES, MAX_SUBS, MAX_SUMMARY, PLACEHOLDERS, REQUIRED, SEC_DECISIONS, SEC_NOTES,
+    SEC_SUBS, SHORT_WIDTH, SUBS_PREFIX, atomic_write, clip, dirlock, log, real, root, self_cmd,
+    stamp, state_dir, text_hash, under,
 )
 from .filters import instruction_shaped
 from .doc import (
-    active_decisions, get_status, is_auto, new_doc, note_hash, parse, read_doc, render, write_doc,
+    active_decisions, get_status, is_auto, new_doc, note_hash, parse, read_doc, render,
+    save_history, write_doc, written_hashes,
 )
 
 
+_IGNORE_CACHE: dict = {}
+
+
 def ignore_patterns() -> list[str]:
-    """The patterns of <root>/.ctxignore (comments and blank lines dropped)."""
-    pats = []
+    """The patterns of <root>/.ctxignore (comments and blank lines dropped).
+
+    Cached per process, keyed by the file's path, size and mtime: one stat per call.
+    """
     f = root() / ".ctxignore"
-    if f.is_file():
-        for line in f.read_text(errors="replace").splitlines():
-            line = line.strip().rstrip("/")
-            if line and not line.startswith("#"):
-                pats.append(line)
-    return pats
+    try:
+        st = f.stat()
+        key = (str(f), st.st_size, st.st_mtime_ns)
+    except OSError:
+        return []
+    if key not in _IGNORE_CACHE:
+        lines = (x.strip().rstrip("/") for x in f.read_text(errors="replace").splitlines())
+        _IGNORE_CACHE.clear()
+        _IGNORE_CACHE[key] = [x for x in lines if x and not x.startswith("#")]
+    return _IGNORE_CACHE[key]
 
 
 def is_ignored(p: str | Path) -> bool:
@@ -57,24 +67,32 @@ def header_meta(p: str | Path) -> dict[str, str]:
             head = f.read(4096)
     except OSError:
         return {}
-    return parse(head).meta if head.startswith("---") else {}
+    return parse(head).meta if head.lstrip("\ufeff").startswith("---") else {}
 
 
 def has_ctx(d: str | Path) -> bool:
-    """True when `d` is a node.
+    """True when `d` is a node: it holds a CONTEXT.md that ctx wrote on this machine.
 
-    A node is a folder whose CONTEXT.md carries the ctx marker; any other CONTEXT.md is foreign and
-    ignored.
+    The `ctx: 1` header alone is not enough: a cloned or committed file carries it too, and its
+    text would then be injected as trusted state. What counts is ctx's local state for the folder
+    (`written`; `hash` for state from before 1.2.0), or a file that is exactly a version ctx wrote
+    for another folder (a node moved or renamed). A node whose header an agent or an editor
+    removed is still a node.
     """
     p = Path(d) / "CONTEXT.md"
     if not p.is_file():
         return False
-    # a node whose header an agent or an editor removed is still a node: ctx wrote it before
-    return MARKER in header_meta(p) or bool((get_status(d) or {}).get("written"))
+    s = get_status(d) or {}
+    if s.get("written") or s.get("hash"):
+        return True
+    try:
+        return text_hash(p.read_text(encoding="utf-8", errors="replace")) in written_hashes()
+    except OSError:
+        return False
 
 
 def is_foreign(d: str | Path) -> bool:
-    """True when `d` holds a CONTEXT.md without the ctx marker: not ours, ignored everywhere."""
+    """True when `d` holds a CONTEXT.md ctx did not write here: not ours, ignored everywhere."""
     p = Path(d) / "CONTEXT.md"
     return p.is_file() and not has_ctx(d)
 
@@ -152,7 +170,10 @@ def parent_node(node: str | Path) -> Path | None:
         if not under(p, r):
             return None
         if has_ctx(p) and not is_ignored(p):
-            return p if node in child_nodes(p) else None
+            # child_nodes(p) would list `node`: O(depth), no walk of p's tree (p may be ~)
+            rel = node.relative_to(p).parts
+            reach = len(rel) <= CHILD_DEPTH and not any(x.startswith(".") for x in rel)
+            return p if reach and not is_ignored(node) else None
         if p == r:
             return None
     return None
@@ -405,7 +426,7 @@ def git_exclude(d: str | Path) -> bool:
 
 
 def create_node(d: Path, absorb: bool = True) -> str:
-    """Create a node at `d`: '' on success, else the reason it was not created.
+    """Create a node at `d`: '' (or 'adopted') on success, else the reason it was not created.
 
     The caller has checked that `d` is a directory under the root and not ignored.
     """
@@ -414,14 +435,21 @@ def create_node(d: Path, absorb: bool = True) -> str:
             return "busy"
         if has_ctx(d):
             return "exists"
-        if is_foreign(d):
-            return "foreign"
         doc = new_doc(absorb=absorb)
+        adopted = is_foreign(d)
+        if adopted:
+            # ctx's format written elsewhere (a clone, another machine): adopt the folder, keep
+            # its Notes; a file in any other format is not ctx's and stays untouched
+            if MARKER not in header_meta(d / "CONTEXT.md"):
+                return "foreign"
+            old = (d / "CONTEXT.md").read_text(encoding="utf-8", errors="replace")
+            save_history(d, old)
+            doc.sections[SEC_NOTES] = parse(old).sections.get(SEC_NOTES, "")
         doc.sections[SEC_SUBS] = build_subs(d)
         atomic_write(d / "CONTEXT.md", render(doc, updated=stamp()))
         note_hash(d, (d / "CONTEXT.md").read_text())
     excluded = git_exclude(d)
     remove_declined(d)
-    log("init", node=d, git_excluded=excluded)
+    log("init", node=d, git_excluded=excluded, adopted=adopted)
     bubble(d)
-    return ""
+    return "adopted" if adopted else ""

@@ -36,9 +36,12 @@ with ` · decisions: N` when N active decisions exist (a count, never their text
 
 ## Nodes
 
-- **Node marker.** A node is a `CONTEXT.md` whose header carries `ctx: 1` (written by `ctx init`). Any other
-  `CONTEXT.md` is foreign, even one in ctx's own format: ignored everywhere, never rewritten, listed by `ctx doctor` on an `info:` line (not a problem);
-  `ctx init` refuses that folder until you move or rename the file.
+- **Node marker.** A node is a folder whose `CONTEXT.md` ctx wrote on this machine (its state in `~/.ctx/state`
+  records the last version; a moved folder whose file is still that version stays a node). The `ctx: 1` header
+  that `ctx init` writes is not enough: a cloned or committed `CONTEXT.md` carries it too. Any other `CONTEXT.md`
+  is foreign: ignored everywhere, never injected nor rewritten, listed by `ctx doctor` on an `info:` line (not a
+  problem). `ctx init` adopts a foreign file that carries `ctx: 1` (its Notes are kept, the rest starts anew,
+  the old file goes to history) and refuses any other until you move or rename it.
   A container without child nodes yet is fine. Folders between two nodes need not be nodes: a node reports to the
   closest node above it that lists it (`~/projects/tools/cli` to `~/projects`, listed there as `tools/cli/`; a
   parent looks at most 3 levels down and never into hidden folders). Only a node with no node at all above it gets an `info:` line from `doctor` (not a problem), with

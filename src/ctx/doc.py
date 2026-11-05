@@ -46,7 +46,7 @@ class Doc:
 def parse(text: str) -> Doc:
     """Parse a CONTEXT.md: front-matter header into `meta`, `## ` sections into `sections`."""
     d = Doc()
-    lines = text.split("\n")
+    lines = text.lstrip("\ufeff").split("\n")  # an editor's BOM must not hide the header
     i = 0
     if lines and lines[0].strip() == "---":
         i = 1
@@ -59,7 +59,8 @@ def parse(text: str) -> Doc:
     cur, buf = None, []
     for line in lines[i:]:
         m = re.match(r"^## (.+?)\s*$", line)
-        if m:
+        # a heading seen before is body text: `## Next` inside Notes never replaces the real Next
+        if m and m.group(1) not in d.sections and m.group(1) != cur:
             if cur is not None:
                 d.sections[cur] = "\n".join(buf).strip("\n")
             cur, buf = m.group(1), []
@@ -212,6 +213,8 @@ def write_doc(node: str | Path, d: Doc, snapshot: bool = True, record: bool = Tr
         old_doc = parse(old)
         kept = old_doc.meta.get("updated", "")
         if render(d, updated=kept) == render(old_doc, updated=kept):
+            if record:  # same content: the file is ctx's version from now on
+                note_hash(node, old)
             return False
     if old is not None and snapshot:
         save_history(node, old)
@@ -248,6 +251,30 @@ def note_hash(node: str | Path, text: str) -> None:
     s["written"] = text  # the base of the next sync: an agent cannot erase Notes, header, Decisions
     (state_dir() / "state").mkdir(parents=True, exist_ok=True)
     atomic_write(state_dir() / "state" / f"{path_key(node)}.json", json.dumps(s))
+
+
+_HASHES: dict = {}
+
+
+def written_hashes() -> set[str]:
+    """Hashes of every CONTEXT.md version ctx last wrote on this machine (a moved node's file).
+
+    Cached per process, keyed by the state directory's mtime (each write renames into it).
+    """
+    sdir = state_dir() / "state"
+    try:
+        key = (str(sdir), sdir.stat().st_mtime_ns)
+    except OSError:
+        return set()
+    if key not in _HASHES:
+        out = set()
+        for f in sdir.glob("*.json"):
+            s = read_json(f, {})
+            w = s.get("written")
+            out.update(x for x in (s.get("hash"), w and text_hash(w)) if x)
+        _HASHES.clear()
+        _HASHES[key] = out
+    return _HASHES[key]
 
 
 def get_status(node: str | Path) -> dict | None:

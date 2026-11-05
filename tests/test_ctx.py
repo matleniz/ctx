@@ -930,8 +930,9 @@ class TestReviewFixes(Base):
     def test_hooks_record_parent_pid_with_start_time(self):
         self.session("s", "courses/ml-intro", ["courses/ml-intro/exos/ex1.py"])
         parts = (self.home / ".ctx/sessions/s/pid").read_text().split()
-        self.assertEqual(int(parts[0]), os.getppid())
-        self.assertEqual(parts[1], ctx.proc_start(os.getppid()))
+        pid = ctx.sessions.cli_pid()  # the parent past any shell wrapper, whatever runs the suite
+        self.assertEqual(int(parts[0]), pid)
+        self.assertEqual(parts[1], ctx.proc_start(pid))
 
     def test_dead_pid_caught_at_once_live_pid_skipped_no_pid_falls_back(self):
         for sid in ("dead", "alive", "nopid"):

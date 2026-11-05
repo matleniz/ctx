@@ -48,8 +48,8 @@ These are best-effort protections, each covered by tests ([readme-claims.md](rea
 |---|---|
 | Hook loop (the rewrite is itself a Claude session) | `CTX_INNER=1` on the model call; every hook exits at once when it is set |
 | Dirtying git | `CONTEXT.md` goes to `.git/info/exclude`; history and logs live in `~/.ctx`, outside repos |
-| Secrets | pattern-based filter on the rewrite input and output; scans skip `.env*`, `*.pem`, `*.key` |
-| Orders in the file (prompt injection) | instruction-shaped lines are dropped from model output, and again at injection for hand-edited content; the frame says the content is not instructions |
+| Secrets | pattern-based filter on the rewrite input and output (tokens, `*_SECRET*=` / `*_TOKEN=`-style keys, URL credentials, PEM blocks); scans skip `.env*`, `*.pem`, `*.key`; `~/.ctx` is private (0700, files 0600) |
+| Orders in the file (prompt injection) | a `CONTEXT.md` ctx did not write on this machine (a clone, a committed file) is foreign, never injected; instruction-shaped lines are dropped from model output, and again at injection for hand-edited content; the frame says the content is not instructions |
 | Leaks between siblings | by inputs, see "Isolation" below |
 | Bad model output | validated in code (sections, caps, summary length); invalid keeps the old file and the failure shows at the next session start |
 | Concurrent syncs | one lock per node, a "redo" flag instead of a queue, atomic write (temp file + rename) |
@@ -76,8 +76,15 @@ Only those three fields are taken: everything else starts from ctx's last versio
 header, the Decisions or the Notes (an edit that empties Notes or Decisions is ignored; one that adds to them is
 kept). Otherwise, or when the agent's text fails the validator (`agent-state-rejected`), the model rewrites. A
 session that edits the `CONTEXT.md` of another node gets that node's state put back (`state-restored`, Notes and
-Decisions kept); an edit of Notes only costs no model call. An edit made outside any session (another machine, an
-editor) is the base of the next model rewrite.
+Decisions kept); an edit of Notes only costs no model call and is settled at once (an emptied Notes or Decisions
+comes back). An edit made outside any session (another machine, an editor, a `sed` through Bash) is the base of the
+next rewrite as it is, Status and Next included.
+
+What the filter drops (`instruction_shaped` in `src/ctx/filters.py`), from the model's output and again at
+injection: lines that speak to a reader (`you must`, `tell the user`, `please`, `Assistant:`), policy lines starting
+with `always`/`never` and a verb, preconditions (`before editing anything`), override phrases (`ignore previous`,
+`system prompt`, `from now on`) and dangerous commands (`rm -rf`, `sudo`, a download piped into a shell or an
+interpreter). State lines ("- not done: tests not run", "- next: add --sum to cli.py") match none of them.
 
 Claude is the only rewriter (`REWRITERS` in `src/ctx/rewriter.py` has one row, `cli_rewriter` is the single call). Content rules: the prompt asks for state with file paths, `decision:` lines and a concrete next step; the
 validator rejects "structure" lines (contains / list of / tree / N files / three file names without a state verb)
@@ -106,9 +113,9 @@ Each case is covered by `tests/test_robust.py`. In every case a failed write nev
 | Cut between the end hook and the sync launch | The session stays pending; the next session start launches the sync |
 | Model call impossible (not logged in, quota, no network, no `claude`) | Old file kept; `sync-fail` log line with the cause; after 2 failures the session is abandoned but kept: `doctor` lists it, the next session start shows "Sync abandoned (session)" with the sanitised cause inside the data frame, `ctx sync --session <id>` retries |
 | Slow model | Same as above; the whole `claude` process group is killed, and also dies with its parent: no orphan |
-| Two machines on one synced folder | Only `CONTEXT.md` is read; a version written outside ctx (hash differs from the last one ctx wrote) is the base of the next rewrite and goes to history (`external-edit` log line; a node with no recorded hash trusts the file once and logs `external-edit-unknown`); sync-tool conflict copies (`CONTEXT (conflit).md`, `CONTEXT.sync-conflict-*.md`) are ignored and flagged by `doctor` |
-| Folder moved, renamed or deleted | `CONTEXT.md` travels with the folder; the parent line follows at the next rebuild; a deleted node disappears from it; `doctor` lists state of vanished paths older than 30 days and `ctx doctor --fix` removes it |
-| `CONTEXT.md` hand-edited during a sync | The Notes of the hand version win; the other sections restart from the version read at the start; the hand version is in history (`ctx undo`); `edit-during-sync` log line |
+| Two machines on one synced folder | Only `CONTEXT.md` is read; a node is a folder ctx wrote on this machine, so the other machine sees a foreign file until `ctx init` adopts it there (Notes kept). A version written outside ctx (it differs from the last one ctx wrote, and no session edited it through its tools) is the base of the next rewrite as it is, Status and Next included, and goes to history; sync-tool conflict copies (`CONTEXT (conflit).md`, `CONTEXT.sync-conflict-*.md`) are ignored and flagged by `doctor` |
+| Folder moved, renamed or deleted | `CONTEXT.md` travels with the folder and stays a node while it is a version ctx wrote; the parent line follows at the next rebuild; a deleted node disappears from it; `doctor` lists state of vanished paths older than 30 days and `ctx doctor --fix` removes it |
+| `CONTEXT.md` edited during a sync (a person, another session's agent) | When its Status or Next changed during the model call, nothing is written: the sync is redone from the new file (`sync-conflict` log line, at most 3 tries, then the work waits for the next sync) |
 | `~/.ctx` missing, unwritable or disk full | Recreated when possible; the session starts with its context, `hook-error` in the log when it can be written |
 | Session never closed (window closed, long sleep, WSL stopped) | A live CLI pid or recent activity protects a session; a dead (or reused) pid releases it at once; a slept session is caught up once and later edits sync alone; nothing is attributed to another node |
 | Growth | `log` over 1 MB moves to `log.1` (one kept, under a lock; logged values are stripped of control characters, `=` and length); `sessions/` purged after 7 days; history keeps 10 versions; `doctor` prints the size of `~/.ctx` |

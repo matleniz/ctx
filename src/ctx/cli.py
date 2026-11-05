@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 from .paths import (
-    MARKER, PURGE_DAYS, __version__, atomic_write, base, clean, dirlock, human_cmd, log, real,
-    root, under,
+    MARKER, PURGE_DAYS, __version__, atomic_write, base, clean, dirlock, human_cmd, log,
+    private_umask, real, root, under,
 )
 from .doc import (
     _log_matches, history_dir, note_hash, orphans, parse_since, read_log,
@@ -53,6 +53,10 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"ctx: {d}/CONTEXT.md is not a ctx file (no `{MARKER}: 1` header): "
               "left untouched; move or rename it to create a node here", file=sys.stderr)
         return 1
+    if why == "adopted":
+        print(f"ctx: node created at {d} from a CONTEXT.md ctx did not write here: its Notes "
+              "are kept, the rest starts anew (old file: `ctx undo`)")
+        return 0
     excluded = git_info_dir(d) is not None
     print(f"ctx: node created at {d}" + (" (excluded from git)" if excluded else ""))
     return 0
@@ -63,7 +67,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
     if args.session:
         r = sync_session(args.session)
         print(f"ctx: session {args.session}: {r}")
-        return 0
+        return 1 if r in ("fail", "nosession") else 0
     if args.dir:
         d = real(args.dir)
         if not has_ctx(d):
@@ -304,4 +308,5 @@ def _add_internal_commands(subparsers):
 def main(argv: list[str] | None = None) -> int:
     """Entry point: parse `argv` and run the command; returns the exit code."""
     args = build_parser().parse_args(argv)
+    private_umask()
     return args.f(args)

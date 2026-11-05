@@ -563,12 +563,12 @@ def pointer_truth(folder, pointers, trunc=6000):
     parts = []
     for rel in pointers:
         p = root / rel
-        if ab.SECRET_RE.search(p.name):
+        if ab.SECRETISH_NAME_RE.search(p.name):
             continue
         if p.is_dir():
             items = []
             for c in sorted(p.iterdir()):
-                if c.name == "CONTEXT.md" or ab.SECRET_RE.search(c.name) or c.name in ab.SKIP_DIRS:
+                if c.name == "CONTEXT.md" or ab.SECRETISH_NAME_RE.search(c.name) or c.name in ab.SKIP_DIRS:
                     continue
                 try:
                     st = c.lstat()
@@ -599,7 +599,7 @@ def git_truth(folder):
         st = subprocess.run(g + ["status", "--short"], capture_output=True, text=True, timeout=60).stdout
     except (OSError, subprocess.SubprocessError):
         return ""
-    st = "\n".join(ln for ln in st.splitlines() if not ab.SECRET_RE.search(ln) and "CONTEXT.md" not in ln)
+    st = "\n".join(ln for ln in st.splitlines() if not ab.SECRETISH_NAME_RE.search(ln) and "CONTEXT.md" not in ln)
     return f"## git log (last 15)\n{log}\n## git status --short\n{st[:3000]}"
 
 

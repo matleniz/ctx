@@ -171,7 +171,7 @@ class AgentStateDefects(AgentState):
         (b / "CONTEXT.md").write_text(ctx.render(d))
         files = [str(a / "x.py"), str(b / "CONTEXT.md")]
         self.assertEqual(list(ctx.sync.route(files, str(a))), [a])
-        ctx.sync.restore_state("s1", files, str(a))
+        ctx.sync.restore_state("s1", files, ctx.sync.route(files, str(a)))
         self.assertEqual(ctx.read_doc(b).sections["Status"], before)
         self.assertIn("added from ml-intro", ctx.read_doc(b).sections["Notes"])
         self.assertIn("state-restored", (self.home / ".ctx" / "log").read_text())

@@ -42,7 +42,7 @@ TASK = ("Status et que faire ensuite ? Donne les 3 prochaines actions concrètes
         "avec les fichiers concernés.")
 RO_TOOLS = "Read,Glob,Grep"
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".ipynb_checkpoints", ".cache"}
-SECRET_RE = re.compile(r"(^\.env|\.pem$|\.key$|id_rsa|id_ed25519|credential|secret|token|\.p12$|\.pfx$|\.kdbx$|\.netrc$)", re.I)
+SECRETISH_NAME_RE = re.compile(r"(^\.env|\.pem$|\.key$|id_rsa|id_ed25519|credential|secret|token|\.p12$|\.pfx$|\.kdbx$|\.netrc$)", re.I)
 TEXT_EXT = {".md", ".txt", ".rst", ""}
 TRUNC, TOTAL_MAX = 4000, 24000
 
@@ -88,17 +88,17 @@ def ground_truth(root, trunc=TRUNC, total=TOTAL_MAX):
     root = Path(root)
     parts, used = [], 0
     top = sorted(p.name + ("/" if p.is_dir() else "") for p in root.iterdir()
-                 if p.name != "CONTEXT.md" and not SECRET_RE.search(p.name) and p.name != ".git")
+                 if p.name != "CONTEXT.md" and not SECRETISH_NAME_RE.search(p.name) and p.name != ".git")
     parts.append("## Top-level listing\n" + "\n".join(top))
     nbs, texts = [], []
     for dp, dns, fns in os.walk(root):
-        dns[:] = sorted(d for d in dns if d not in SKIP_DIRS and not SECRET_RE.search(d))
+        dns[:] = sorted(d for d in dns if d not in SKIP_DIRS and not SECRETISH_NAME_RE.search(d))
         depth = len(Path(dp).relative_to(root).parts)
         if depth > 3:
             dns[:] = []
         for fn in sorted(fns):
             rel = (Path(dp) / fn).relative_to(root)
-            if SECRET_RE.search(fn) or fn == "CONTEXT.md":
+            if SECRETISH_NAME_RE.search(fn) or fn == "CONTEXT.md":
                 continue
             if fn.endswith(".ipynb"):
                 nbs.append(str(rel))
@@ -351,11 +351,11 @@ def enlarged_truth(folder, memory_root=None, listing_max=150):
     root = Path(folder)
     items = []
     for dp, dns, fns in os.walk(root):
-        dns[:] = sorted(d for d in dns if d not in SKIP_DIRS and not SECRET_RE.search(d))
+        dns[:] = sorted(d for d in dns if d not in SKIP_DIRS and not SECRETISH_NAME_RE.search(d))
         if len(Path(dp).relative_to(root).parts) >= 2:
             dns[:] = []
         for n in sorted(dns) + sorted(fns):
-            if SECRET_RE.search(n) or n == "CONTEXT.md":
+            if SECRETISH_NAME_RE.search(n) or n == "CONTEXT.md":
                 continue
             p = Path(dp) / n
             try:

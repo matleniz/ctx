@@ -341,7 +341,6 @@ class TestExternalEditsAndMovedNodes(Robust):
         self.assertIn("travail de la machine B", fk.calls[0][1])  # the external version, not the last ctx one, is the base
         self.assertNotIn("UNIQUE-MARQUEUR", fk.calls[0][1])
         self.assertNotIn("conflit", fk.calls[0][1].split("<files")[-1])  # conflict copies are not even listed as touched files
-        self.assertRegex(self.log_text(), r"external-edit node=\S*ml-intro")
         hist = "".join(x.read_text() for x in ctx.history_dir(self.node).glob("*.md"))
         self.assertIn("travail de la machine B", hist)  # kept in history: ctx undo brings it back
         self.assertIn("noté depuis l'autre machine", self.text("courses/ml-intro"))  # Notes untouched
@@ -395,20 +394,26 @@ class TestExternalEditsAndMovedNodes(Robust):
         self.session("s1", "courses/ml-intro", [self.f1], "ex1")
         node = self.node
 
+        prompts = []
+
         def rewriter(system, prompt):  # the user edits CONTEXT.md while the model is thinking
-            d = ctx.read_doc(node)
-            d.sections[ctx.SEC_NOTES] = "- note ajoutée à la main PENDANT la synchro"
-            d.sections[ctx.SEC_STATUS] = "- ligne à la main perdue"
-            (node / "CONTEXT.md").write_text(ctx.render(d, updated="2026-11-04T10:00"))
+            prompts.append(prompt)
+            if len(prompts) == 1:
+                d = ctx.read_doc(node)
+                d.sections[ctx.SEC_NOTES] = "- note ajoutée à la main PENDANT la synchro"
+                d.sections[ctx.SEC_STATUS] = "- ligne à la main gardée"
+                (node / "CONTEXT.md").write_text(ctx.render(d, updated="2026-11-04T10:00"))
             return fake_output(where="- version du modèle"), {"in": 1, "out": 1, "secs": 0}
         self.assertEqual(ctx.sync_session("s1", rewriter), "ok")
         d = self.doc("courses/ml-intro")
-        self.assertEqual(d.sections[ctx.SEC_NOTES], "- note ajoutée à la main PENDANT la synchro")  # Notes of the hand version win
-        self.assertEqual(d.sections[ctx.SEC_STATUS], "- version du modèle")  # others restart from the version read at the start
-        self.assertRegex(self.log_text(), r"edit-during-sync")
-        self.assertIn("ligne à la main perdue", "".join(x.read_text() for x in ctx.history_dir(node).glob("*.md")))
+        self.assertEqual(len(prompts), 2)  # the first answer was not written over the hand edit
+        self.assertIn("ligne à la main gardée", prompts[1])  # the redo starts from the hand version
+        self.assertEqual(d.sections[ctx.SEC_NOTES], "- note ajoutée à la main PENDANT la synchro")
+        self.assertEqual(d.sections[ctx.SEC_STATUS], "- version du modèle")
+        self.assertRegex(self.log_text(), r"sync-conflict")
+        self.assertIn("ligne à la main gardée", "".join(x.read_text() for x in ctx.history_dir(node).glob("*.md")))
         self.assertEqual(self.run_ctx("undo", str(node))[0], 0)  # the hand version is one `ctx undo` away
-        self.assertIn("ligne à la main perdue", self.text("courses/ml-intro"))
+        self.assertIn("ligne à la main gardée", self.text("courses/ml-intro"))
         self.assertIn("PENDANT la synchro", self.text("courses/ml-intro"))
         self.ev("R8", f"hand edit (Notes + Status) during the model call\nafter sync: Notes={d.sections[ctx.SEC_NOTES]!r}, "
                       f"Status={d.sections[ctx.SEC_STATUS]!r}\nhand version in history; `ctx undo` restores it\n{self.logtail(3)}")

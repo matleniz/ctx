@@ -69,7 +69,7 @@ def sync_node(node: str | Path, files: list[str], msgs: list[str], rewriter: Cal
     """Queue the work then try to become the single syncer. Returns 'ok'|'queued'|'fail'|'none'."""
     node = real(node)
     enqueue(node, files, msgs, light)
-    result = SYNC_QUEUED
+    result, conflicts = SYNC_QUEUED, 0
     while True:
         with dirlock(node, blocking=False) as got:
             if not got:
@@ -82,6 +82,12 @@ def sync_node(node: str | Path, files: list[str], msgs: list[str], rewriter: Cal
                 except BaseException:  # incl. the deadline alarm: the drained work stays queued
                     log("sync-requeue", node=node, items=len(items))
                     raise
+                if result == CONFLICT:  # the items stay queued: redo from the new file
+                    conflicts += 1
+                    if conflicts < MAX_CONFLICTS:
+                        continue
+                    set_status(node, False, "CONTEXT.md kept changing during the sync")
+                    result = SYNC_FAIL
                 if result == SYNC_FAIL:
                     return result  # keep the drained items queued for the next sync
                 for f in items:  # consumed only once the rewrite is settled
@@ -91,6 +97,10 @@ def sync_node(node: str | Path, files: list[str], msgs: list[str], rewriter: Cal
         # draining/rewriting left its work here and relies on us (no lost wakeup).
         if not has_pending(node):
             return result if result != SYNC_QUEUED else SYNC_NONE
+
+
+CONFLICT = "conflict"  # _rewrite_locked: CONTEXT.md's Status or Next changed during the model call
+MAX_CONFLICTS = 3  # attempts of one sync_node before the work is left for the next sync
 
 
 def _rewrite_locked(node, files, msgs, rewriter, light=False):
@@ -104,7 +114,6 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
     except OSError:
         return SYNC_FAIL
     old = parse(old_text)
-    check_external_edit(node, old_text)
     diffstat = "" if light else git_diffstat(node)
     if not files and not msgs and not diffstat and not own:
         bubble(node)
@@ -119,7 +128,11 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
             writer, info = "agent", {"in": 0, "out": 0, "secs": 0}
         else:
             output, info = ask_model(node, rewriter, prompt, subs, trims, light)
-        changed = apply_rewrite(node, old, output, trims, light)
+        changed = apply_rewrite(node, old, output, trims, light, own=bool(own))
+        if changed is None:
+            log("sync-conflict", node=node, why="Status or Next edited during the sync: redone "
+                "from the new file")
+            return CONFLICT
         # worked: time of the last sync with touched files; False: read-only bootstraps only
         prior = get_status(node) or {}
         set_status(node, True, worked=stamp() if files else prior.get(
@@ -179,23 +192,6 @@ def adopt_agent_state(node: Path, cur: Doc, msgs: list[str], subs: str,
         return None
 
 
-def check_external_edit(node: Path, old_text: str) -> None:
-    """Log when CONTEXT.md was written outside ctx since its last sync.
-
-    The file is still the base of the rewrite.
-    """
-    known = (get_status(node) or {}).get("hash")
-    if not known:
-        # no hash recorded (state removed): trusted this once; write_doc records the hash, so
-        # this logs once
-        log("external-edit-unknown", node=node,
-            why="no recorded hash: CONTEXT.md trusted as is")
-    elif known != text_hash(old_text):
-        # written outside ctx (other machine, editor): it is the base, kept in history
-        log("external-edit", node=node,
-            why="CONTEXT.md differs from the last version ctx wrote; used as base")
-
-
 def rewrite_prompt(node: Path, old: Doc, files: list[str], msgs: list[str],
                    diffstat: str, light: bool = False) -> tuple[str, int]:
     """The rewrite prompt and the number of redactions made in it.
@@ -252,21 +248,19 @@ def ask_model(node: Path, rewriter: Callable, prompt: str, subs: str,
 
 
 def apply_rewrite(node: Path, old: Doc, output: ModelOutput, trims: list[str],
-                  light: bool = False) -> bool:
+                  light: bool = False, own: bool = False) -> bool | None:
     """Write the model's summary, Status and Next over the current file; returns changed?
 
-    The Notes of the current file are kept; its Decisions too, plus the model's `decision:` lines
-    (merge_decisions). light: only Next and Decisions change.
+    None, writing nothing, when Status or Next changed since `old` was read (another session or a
+    person edited the file during the model call): the caller redoes the sync from the new file.
+    The base is merged_base (`own`: the session edited the file through its tools); the model's
+    `decision:` lines are merged into Decisions. light: only Next and Decisions change.
     """
-    # re-read: a hand edit made during the model call keeps its Notes (the rest restarts from the
-    # version read above)
     cur = read_doc(node)
-    notes = (cur.sections.get(SEC_NOTES, ""), old.sections.get(SEC_NOTES, ""))
-    notes_changed = text_hash(notes[0]) != text_hash(notes[1])
-    if notes_changed or cur.sections.get(SEC_STATUS) != old.sections.get(SEC_STATUS):
-        log("edit-during-sync", node=node, why="hand edit during the model call: Notes kept, "
-            "other sections rewritten, edit in history")
-    cur = merged_base(node, cur)
+    if any(cur.sections.get(n, "").strip() != old.sections.get(n, "").strip()
+           for n in (SEC_STATUS, SEC_NEXT)):
+        return None
+    cur = merged_base(node, cur, trust_file=not own)
     cur.meta.setdefault(MARKER, "1")
     if not light:
         cur.meta["summary"] = output.summary
@@ -331,36 +325,46 @@ def route(files: list[str], launch_cwd: str) -> dict[Path, list[str]]:
     return out
 
 
-def restore_state(sid: str, files: list[str], launch_cwd: str) -> None:
-    """Put back ctx's last version of a node's state the session edited from another node.
+def restore_state(sid: str, files: list[str], targets: dict) -> None:
+    """Put back ctx's last version of a node's state the session edited and may not adopt.
 
-    Notes and Decisions edited by the session are kept (merged_base); Status, Next, summary and
-    header return to what ctx wrote.
+    The CONTEXT.md files route() left out of `targets` (another node, a container): Notes and
+    Decisions edited by the session are kept (merged_base); Status, Next, summary and header
+    return to what ctx wrote.
     """
-    launch = nearest_node(launch_cwd) if launch_cwd else None
     for f in files:
         d = real(os.path.dirname(f))
-        if os.path.basename(f) != "CONTEXT.md" or d == launch or not has_ctx(d):
-            continue
-        with dirlock(d, timeout=BUBBLE_LOCK_WAIT) as got:
-            if not got or written_doc(d) is None:
-                continue
-            doc = merged_base(d, read_doc(d))
-            doc.sections[SEC_SUBS] = build_subs(d)
-            if write_doc(d, doc):
-                log("state-restored", node=d, session=sid,
-                    why="edited from a session of another node: only Notes/Decisions kept")
-        bubble(d)
+        if os.path.basename(f) == "CONTEXT.md" and f not in targets.get(d, []) and has_ctx(d):
+            restore_node(d, sid, "edited from a session of another node: only Notes/Decisions kept")
 
 
-def merged_base(node: str | Path, cur: Doc) -> Doc:
+def restore_node(d: Path, sid: str, why: str) -> None:
+    """Write merged_base over a CONTEXT.md a session edited through its tools, then bubble.
+
+    The edit is settled at once: a later sync, which did not see the session's edit, would take
+    the file as an outside edit and keep an emptied Notes or Decisions.
+    """
+    with dirlock(d, timeout=BUBBLE_LOCK_WAIT) as got:
+        if not got or written_doc(d) is None:
+            return
+        doc = merged_base(d, read_doc(d))
+        doc.sections[SEC_SUBS] = build_subs(d)
+        if write_doc(d, doc):
+            log("state-restored", node=d, session=sid, why=why)
+    bubble(d)
+
+
+def merged_base(node: str | Path, cur: Doc, trust_file: bool = False) -> Doc:
     """What a sync starts from: ctx's last version, with the current Notes and Decisions.
 
     Notes and Decisions are the human's (and code's): an edit that empties them is ignored; the
     header (marker, absorb, private) follows the current file while it still has the marker.
+    trust_file (no session edited the file through its tools): a file that differs from ctx's
+    last version was edited outside ctx (a person, an editor, another machine) and is the base
+    as it is, Status and Next included.
     """
     w = written_doc(node)
-    if w is None:
+    if w is None or (trust_file and not own_version(node)):
         return cur
     out = Doc()
     out.meta, out.sections = dict(w.meta), dict(w.sections)
@@ -374,6 +378,16 @@ def merged_base(node: str | Path, cur: Doc) -> Doc:
             else:
                 out.meta.pop(k, None)
     return out
+
+
+def own_version(node: str | Path) -> bool:
+    """True when the node's CONTEXT.md is the last version ctx wrote (no edit since)."""
+    w = (get_status(node) or {}).get("written")
+    try:
+        text = (Path(node) / "CONTEXT.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return w is not None and text_hash(w) == text_hash(text)
 
 
 def _scan_descends(e):
@@ -461,7 +475,7 @@ def _sync_session(sid, rewriter):
         if not new and not msgs:
             return SESSION_NOTHING
         targets = route(new, cwd)
-        restore_state(sid, new, cwd)
+        restore_state(sid, new, targets)
         launch = nearest_node(cwd) if cwd else None
         if launch is not None and not accepts(launch, cwd):
             launch = None
@@ -536,7 +550,9 @@ def sync_targets(sid: str, targets: dict, msgs: list[str], rewriter: Callable) -
         # a container is never bootstrapped by a session that only talked in it
         work = [f for f in node_files if os.path.basename(f) != "CONTEXT.md"]
         if len(work) < len(node_files) and not agent_state_changed(node, read_doc(node)):
-            node_files = work  # CONTEXT.md edited without new state (Notes): nothing to adopt
+            # CONTEXT.md edited without new state (Notes): nothing to adopt, the edit is settled
+            restore_node(node, sid, "edited without a Status or Next change: Notes/Decisions kept")
+            node_files = work
         container = not node_files and not read_doc(node).absorb
         light = not node_files and (container or not needs_bootstrap(node))
         if light and not light_worthy(msgs):
