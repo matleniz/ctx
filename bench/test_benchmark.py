@@ -1,4 +1,4 @@
-"""Benchmark runner (tests/integration/run_benchmark.py): pure parts, offline."""
+"""Benchmark runner (bench/run_benchmark.py): pure parts, offline."""
 import json
 import sys
 import tempfile
@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE / "integration"))
+sys.path.insert(0, str(HERE))
 import run_benchmark as rb  # noqa: E402
 
 

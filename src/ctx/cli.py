@@ -75,7 +75,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
             return 1
         print(f"ctx: {sync_node(d, [], [], cli_rewriter)}")
         return 0
-    found = catch_up(spawn=False, close=False)
+    found = catch_up(spawn=False)
     for sid in found:
         print(f"ctx: session {sid}: {sync_session(sid)}")
     if not found:

@@ -72,12 +72,10 @@ with ` · decisions: N` when N active decisions exist (a count, never their text
 
 ## Configuration and environment
 
-- `~/.ctx/config`: `light_words` (comma-separated blocker words; a session without file changes gets a
-  sync-light when its reports hold at least two of them as whole words; default
-  `blocked,failed,cannot,bloqué,échec,impossible,refused`; a line starting with `decision:`, `next:` or
-  `prochaine étape:` always counts), `model` (default `haiku`; a value starting with `-` is refused) and `rewriter` (only `claude`;
+- `~/.ctx/config`: `model` (default `haiku`; a value starting with `-` is refused) and `rewriter` (only `claude`;
   anything else is reported by `ctx doctor` and fails the sync with a clear message). There is no timeout key: a
-  model call is cut after 100 s, and a node's sync deadline is `2 x 100 + 30` seconds (two calls and a margin).
+  model call is cut after 100 s (one retry at most); a sync waits at most `2 x 100 + 30` seconds for another sync
+  of the same node, and 30 seconds for a parent's lock.
 - `CTX_OFF=1`: every hook is a no-op (any value except empty, `0`, `false`, `no`, `off`).
 - `CTX_HOME`: use another directory instead of your home (state in `$CTX_HOME/.ctx`); `CTX_ROOT`: root of the node
   tree and of `.ctxignore`. Both are mostly for tests.
@@ -85,22 +83,21 @@ with ` · decisions: N` when N active decisions exist (a count, never their text
 
 ## Behaviour details
 
-- **Work detection.** A session that routed no file to a node does not rewrite it (log line `skip`), except the first
-  time (placeholder summary), so a read-only "take stock" session can fill a new node, and except when its reports
-  hold a line starting with `decision:`, `next:` or `prochaine étape:`, or two `light_words` words: then a reduced rewrite (log line
-  `sync-light`) sees only the old Next and Decisions and the reports, and may change only Next and Decisions.
+- **Work detection.** A session that routed no file to a node gets no model call, except the first time
+  (placeholder summary), so a read-only "take stock" session can fill a new node. Instead (**sync-light**, log line
+  `sync-light`, or `skip` when there is nothing), the `decision: ...` lines of its reports go to Decisions and a
+  `next: ...` (or `prochaine étape: ...`) line replaces Next, through the same filters; Status and the summary stay.
 - **Edits through Bash.** Hooks do not see them: at sync, files of the routed (or launch) node modified since the
   session start, and not in `.ctxignore`, `.git` or a child node, are added (log line `bash-scan`). The heuristic can
   also pick up a file edited by another process in the same window.
-- **Liveness.** Hooks record the CLI's pid (past the `sh -c` that runs the hook command) and start time in
-  `~/.ctx/sessions/<id>/pid`; the next session start syncs at
-  once a session whose process is gone. A session whose CLI process is alive (same start time) counts as running
-  whatever its activity, for at most 12 hours idle. Without a pid file, a session active in the last 600 seconds counts as running.
+- **Liveness.** A session is over when its end hook wrote the `ended` marker (a resumed session clears it), or
+  after 6 hours without a hook. The next session start syncs the sessions that are over; a running one syncs at its
+  own end. agy has no end hook: its sessions are synced after 6 hours without a hook, or by `ctx sync`.
 - **Trimming.** Over-long model output is trimmed, not rejected: a summary is cut at the last space to 300 characters
   with `…`, a section keeps its first whole lines within its caps (log line `trimmed`). A rewrite that copies a
   subfolder's own summary line is rejected and retried once, then the old file is kept.
-- **Catch-up.** A session without pid is caught up once, then closed; a session already synced with only new reports
-  never reappears.
+- **Catch-up.** A session already synced with only new reports never reappears; new files bring it back. A sync
+  that failed, or that could not get its node's lock (`busy`), is retried from the session's offsets.
 
 ## Log and doctor
 
@@ -127,13 +124,13 @@ the confirmation counts as "no" (nothing written): pass `--yes`.
 with `src/` on `PYTHONPATH`. The program is the package `src/ctx/`, standard library only. Modules, in import order
 (each imports only from those above it):
 
-- `paths.py`: constants, state dir, log, atomic writes, directory locks, deadline, launcher path.
+- `paths.py`: constants, state dir, log, atomic writes, directory locks, hook deadline, launcher path.
 - `filters.py`: secret, instruction-shaped and structure-line filters.
 - `doc.py`: `Doc`, parse and render; history snapshots, per-node state.
 - `tree.py`: `.ctxignore`, node discovery, declined folders, the Subfolders section, bubble-up, git exclude.
 - `sessions.py`: hook collection, pending work, session liveness, catch-up.
 - `rewriter.py`: prompt, rewriter table, config, the model call, output parsing.
-- `sync.py`: per-node queue, rewrite, session sync, bash scan, deadlines.
+- `sync.py`: node lock, rewrite, sync-light, session sync, bash scan.
 - `hooks.py`: client table, session-start injection, hook dispatch.
 - `install.py`: hook entries in the CLIs' configs (merge, review, removal).
 - `doctor.py`: the checks and fixes behind `ctx doctor`.
@@ -145,9 +142,10 @@ that uses it (`ctx.sync.write_doc`).
 ## Tests
 
 - Unit suite, offline: `python3 -m unittest discover -s tests`.
-- Integration runners in `tests/integration/` use a real `claude` on a throwaway test tree (`CTX_HOME`) and write their
-  evidence to `$CTX_EVIDENCE_DIR` (default: a `ctx-evidence` folder in the system temp dir): `run_readme.py` (the user journey), `run_install.py` (install and uninstall in a temporary
-  HOME, no model), `run_core_battery.py`, `run_resilience.py`, `run_usefulness.py` (longer batteries; see `SUMMARY.txt` in each
-  output folder). They pass `--setting-sources project,local` so only the test tree's hooks run when your own are
-  installed.
+- Integration runners in `tests/integration/` use a real `claude` (or `cursor-agent`, `agy`) on a throwaway test tree
+  (`CTX_HOME`) and write their evidence to `$CTX_EVIDENCE_DIR` (default: a `ctx-evidence` folder in the system temp
+  dir): `run_readme.py` (the user journey), `run_core_battery.py`, `run_regressions.py`, `run_resilience.py` (longer
+  batteries; see `SUMMARY.txt` in each output folder), `run_loop_guard.py`, `run_cursor.py`, `run_agy.py`. They pass
+  `--setting-sources project,local` so only the test tree's hooks run when your own are installed.
+- Benchmarks in `bench/` (see `bench/README.md`); their pure parts: `python3 -m unittest discover -s bench`.
 - Hidden option used by the runners: `install-hooks --settings-file FILE` (with `--yes`, writes a hooks-only config to a new file).

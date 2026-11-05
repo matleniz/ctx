@@ -148,8 +148,7 @@ class ConcurrentAndOutsideEdits(test_ctx.Base):
         d = ctx.doc.read_doc(n)
         d.sections["Status"] = "- train.py: BROKEN since refactor (hand note)"
         (n / "CONTEXT.md").write_text(ctx.doc.render(d))
-        light = Fake("## Next\n- eval.py: write eval\ndecision: AdamW, more stable\n")
-        ctx.sync.sync_node(n, [], ["decision: AdamW, more stable"], light, light=True)
+        ctx.sync.sync_light(n, "s", ["decision: AdamW, more stable\nnext: eval.py: write eval"])
         self.assertIn("BROKEN since refactor", ctx.doc.read_doc(n).sections["Status"])
 
     def test_agent_edit_emptying_decisions_is_settled_at_once(self):

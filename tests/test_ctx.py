@@ -1,8 +1,6 @@
 """Unit tests for ctx: no real model, a fake rewriter is injected."""
-import argparse
 import io
 import json
-import re
 import os
 import subprocess
 import sys
@@ -865,35 +863,54 @@ class TestCommands(Base):
 
 
 class TestReviewFixes(Base):
-    def test_failed_rewrite_keeps_queued_work(self):
-        node = self.p("courses/ml-intro")
-        bad = Fake("garbage")
-        self.assertEqual(ctx.sync.sync_node(node, [str(node / "a.py")], ["did a"], bad), "fail")
-        self.assertTrue(ctx.sync.has_pending(node))
+    def test_failed_sync_is_replayed_from_the_session_offsets(self):
+        self.session("s1", "courses/ml-intro", ["courses/ml-intro/a.py"], "did a")
+        self.assertEqual(ctx.sync.sync_session("s1", Fake("garbage")), "fail")
         fk = Fake()
-        self.assertEqual(ctx.sync.sync_node(node, [str(node / "b.py")], [], fk), "ok")
-        self.assertIn("a.py", fk.calls[0][1])
-        self.assertIn("did a", fk.calls[0][1])
-        self.assertFalse(ctx.sync.has_pending(node))
+        self.assertEqual(ctx.sync.sync_session("s1", fk), "ok")
+        self.assertIn("a.py", fk.calls[-1][1])
+        self.assertIn("did a", fk.calls[-1][1])
 
-    def test_no_lost_wakeup_when_enqueued_during_empty_drain(self):
+    def test_a_second_sync_of_a_node_waits_for_the_first(self):
         node = self.p("courses/ml-intro")
-        real_drain, fk = ctx.sync.drain, Fake()
-        state = {"n": 0}
+        started, release, order = threading.Event(), threading.Event(), []
 
-        def drain(n):
-            if state["n"] == 0:  # drain sees nothing; a racing syncer then enqueues and fails to get the lock
-                state["n"] = 1
-                ctx.sync.enqueue(ctx.paths.real(n), [str(node / "late.py")], [])
-                return [], [], [], False
-            return real_drain(n)
-        ctx.sync.drain = drain  # patched where sync_node uses it
-        try:
-            ctx.sync.sync_node(node, [], [], fk)
-        finally:
-            ctx.sync.drain = real_drain
-        self.assertEqual(len(fk.calls), 1)
-        self.assertIn("late.py", fk.calls[0][1])
+        def slow(system, prompt):
+            started.set()
+            release.wait(10)
+            order.append("A")
+            return fake_output(where="- A done"), {}
+
+        def quick(system, prompt):
+            order.append("B")
+            self.assertIn("- A done", prompt)  # B starts from the file A wrote
+            return fake_output(where="- B done"), {}
+        a = threading.Thread(target=ctx.sync.sync_node, args=(node, [str(node / "a.py")], [], slow))
+        a.start()
+        started.wait(10)
+        b = threading.Thread(target=ctx.sync.sync_node, args=(node, [str(node / "b.py")], [], quick))
+        b.start()
+        time.sleep(0.3)
+        self.assertEqual(order, [])  # B waits on the node lock
+        release.set()
+        a.join(10)
+        b.join(10)
+        self.assertEqual(order, ["A", "B"])
+        self.assertEqual(self.doc("courses/ml-intro").sections["Status"], "- B done")
+
+    def test_lock_wait_runs_out_busy_not_failed(self):
+        node = self.p("courses/ml-intro")
+        self.session("s1", "courses/ml-intro", ["courses/ml-intro/a.py"], "did a")
+        with mock.patch.object(ctx.sync, "NODE_LOCK_WAIT", 0.2), ctx.paths.dirlock(node):
+            done = []
+            t = threading.Thread(target=lambda: done.append(ctx.sync.sync_session("s1", Fake())))
+            t.start()
+            t.join(10)
+        self.assertEqual(done, ["busy"])
+        state = ctx.sessions.session_pending(ctx.sessions.session_dir_of("s1"))
+        self.assertTrue(state.files)  # still pending, not counted as a failure
+        self.assertEqual(state.state.get("fails", 0), 0)
+        self.assertEqual(ctx.sync.sync_session("s1", Fake()), "ok")
 
     def test_write_phase_exception_is_a_bounded_failure(self):
         self.session("s1", "courses/ml-intro", ["courses/ml-intro/exos/ex1.py"], "ok")
@@ -920,46 +937,6 @@ class TestReviewFixes(Base):
         sd = self.home / ".ctx/sessions/live"
         (sd / "ended").write_text("x")
         self.assertEqual(ctx.sessions.catch_up(spawn=False, skip_live=True), ["live"])
-
-    def _dead_pid(self):
-        p = subprocess.Popen([sys.executable, "-c", "pass"])
-        p.wait()
-        return p.pid
-
-    @unittest.skipUnless(sys.platform == "linux", "Linux-only: process start time is read from /proc")
-    def test_hooks_record_parent_pid_with_start_time(self):
-        self.session("s", "courses/ml-intro", ["courses/ml-intro/exos/ex1.py"])
-        parts = (self.home / ".ctx/sessions/s/pid").read_text().split()
-        pid = ctx.sessions.cli_pid()  # the parent past any shell wrapper, whatever runs the suite
-        self.assertEqual(int(parts[0]), pid)
-        self.assertEqual(parts[1], ctx.sessions.proc_start(pid))
-
-    def test_dead_pid_caught_at_once_live_pid_skipped_no_pid_falls_back(self):
-        for sid in ("dead", "alive", "nopid"):
-            self.session(sid, "courses/ml-intro", ["courses/ml-intro/exos/ex1.py"], "m")
-        sess = self.home / ".ctx/sessions"
-        (sess / "dead/pid").write_text(f"{self._dead_pid()} 123\n")
-        (sess / "alive/pid").write_text(f"{os.getpid()} {ctx.sessions.proc_start(os.getpid())}\n")
-        (sess / "nopid/pid").unlink()
-        # fresh activity: only the dead one is synced at once; no-pid one falls back to the 600 s window
-        self.assertEqual(ctx.sessions.catch_up(spawn=False, skip_live=True), ["dead"])
-        old = time.time() - ctx.paths.LIVE_WINDOW - 100
-        for sid in ("alive", "nopid"):
-            for x in [*(sess / sid).iterdir(), sess / sid]:
-                os.utime(x, (old, old))
-        # past the window: no pid -> considered dead; alive pid -> still skipped only if within the window
-        self.assertIn("nopid", ctx.sessions.catch_up(spawn=False, skip_live=True))
-
-    @unittest.skipUnless(sys.platform == "linux", "Linux-only: process start time is read from /proc")
-    def test_reused_pid_counts_as_dead(self):
-        self.session("r", "courses/ml-intro", ["courses/ml-intro/exos/ex1.py"], "m")
-        (self.home / ".ctx/sessions/r/pid").write_text(f"{os.getpid()} 1\n")  # same pid, other start time
-        self.assertEqual(ctx.sessions.catch_up(spawn=False, skip_live=True), ["r"])
-
-    def test_unreadable_pid_file_falls_back(self):
-        self.session("g", "courses/ml-intro", ["courses/ml-intro/exos/ex1.py"], "m")
-        (self.home / ".ctx/sessions/g/pid").write_text("garbage")
-        self.assertEqual(ctx.sessions.catch_up(spawn=False, skip_live=True), [])
 
     def test_invalid_first_answer_is_retried_once_then_passes(self):
         self.session("g1", "courses/ml-intro", ["courses/ml-intro/exos/ex1.py"], "m")
@@ -1032,8 +1009,8 @@ class TestReviewFixes(Base):
         after = len(list(ctx.doc.history_dir(par).glob("*.md"))) if ctx.doc.history_dir(par).is_dir() else 0
         self.assertEqual(before, after)
 
-    def test_bubble_lock_wait_inside_sync_deadline(self):
-        self.assertLess(ctx.paths.BUBBLE_LOCK_WAIT, ctx.sync.sync_deadline())
+    def test_bubble_lock_wait_inside_the_node_lock_wait(self):
+        self.assertLess(ctx.paths.BUBBLE_LOCK_WAIT, ctx.paths.NODE_LOCK_WAIT)
 
     def test_ctx_off_values(self):
         for v, off in (("1", True), ("true", True), ("0", False), ("", False), ("off", False)):
@@ -1236,15 +1213,6 @@ class TestSummaryAndBashScan(Base):
         self.assertEqual(ctx.rewriter.copied_sub("court", subs), None)  # < 20 chars is too generic to gate
 
     # C5
-    def test_pidless_session_caught_up_once_then_closed(self):
-        self.session("old", "notes", ["notes/notes.md"], "bilan")
-        pid = self.home / ".ctx/sessions/old/pid"
-        pid.unlink()
-        self.assertEqual(ctx.sessions.catch_up(spawn=False), ["old"])
-        self.assertTrue((self.home / ".ctx/sessions/old/closed").exists())
-        self.assertEqual(ctx.sessions.catch_up(spawn=False), [])
-        self.assertEqual(ctx.sessions.catch_up(spawn=False), [])
-
     def test_synced_session_without_new_files_does_not_reappear(self):
         self.session("rd", "notes", [], "lecture")
         ctx.sync.sync_session("rd", Fake())
@@ -1253,23 +1221,6 @@ class TestSummaryAndBashScan(Base):
         # new files still bring it back
         self.session("rd", "notes", ["notes/notes.md"], None)
         self.assertEqual(ctx.sessions.catch_up(spawn=False), ["rd"])
-
-    def test_closed_session_reopens_when_it_touches_more_files(self):
-        self.session("old2", "notes", ["notes/notes.md"], "bilan")
-        sd = self.home / ".ctx/sessions/old2"
-        (sd / "pid").unlink()
-        self.assertEqual(ctx.sessions.catch_up(spawn=False), ["old2"])
-        ctx.sync.sync_session("old2", Fake())
-        self.assertEqual(ctx.sessions.catch_up(spawn=False), [])
-        with open(sd / "touched", "a") as f:
-            f.write(str(self.p("notes/other.md")) + "\n")
-        self.assertEqual(ctx.sessions.catch_up(spawn=False), ["old2"])
-
-    def test_catch_up_without_close_does_not_write_closed(self):
-        self.session("old3", "notes", ["notes/notes.md"], "bilan")
-        (self.home / ".ctx/sessions/old3/pid").unlink()
-        self.assertEqual(ctx.sessions.catch_up(spawn=False, close=False), ["old3"])
-        self.assertFalse((self.home / ".ctx/sessions/old3/closed").exists())
 
     # C7
     def _bash_edit(self, rel, text="\nligne ajoutée\n"):
@@ -1418,210 +1369,3 @@ class TestSummaryEdgeCases(Base):
         fk = Fake()
         ctx.sync.sync_session("u", fk)
         self.assertEqual(len(fk.calls), 1)
-
-
-class TestAbThreeArmRunner(unittest.TestCase):
-    """Three-arm runner (structure / state / nothing): pure parts."""
-
-    @classmethod
-    def setUpClass(cls):
-        sys.path.insert(0, str(Path(__file__).resolve().parent / "integration"))
-        import run_ab_real_folders
-        cls.m = run_ab_real_folders
-
-    SPEC = {"summary": "exos/a.py est un stub. Suite : exos/a.py.", "status": ["exos/a.py : stub", "decision: x, car y"],
-            "next": ["Implémenter exos/a.py"]}
-
-    def test_variant_written_and_restored_byte_identical(self):
-        orig = "---\nsummary: Orig\nupdated: 2026-01-02T03:04\nabsorb: true\n---\n## Status\n- old\n\n## Next\n- old\n\n## Notes\n\n\n## Subfolders\n- sub : s\n".encode()
-        with tempfile.TemporaryDirectory() as t:
-            (Path(t) / "CONTEXT.md").write_bytes(orig)
-            (Path(t) / "x.txt").write_text("x")
-            before = self.m.manifest(t)
-            n = self.m.write_variant(t, orig, self.SPEC)
-            txt = (Path(t) / "CONTEXT.md").read_text()
-            self.assertEqual(n, len(txt.encode()))
-            self.assertIn("summary: exos/a.py est un stub", txt)
-            self.assertIn("- decision: x, car y", txt)
-            self.assertIn("absorb: true", txt)
-            self.assertIn("- sub : s", txt)  # Subfolders kept
-            self.assertTrue(self.m.only_context_changed(self.m.diff_manifest(before, self.m.manifest(t))))
-            self.m.restore_context(t, orig)
-            self.assertEqual((Path(t) / "CONTEXT.md").read_bytes(), orig)
-            self.assertEqual(self.m.manifest(t), before)
-
-    def test_restore_removes_node_created_by_init(self):
-        with tempfile.TemporaryDirectory() as t:
-            self.m.write_variant(t, b"", self.SPEC)
-            self.assertTrue((Path(t) / "CONTEXT.md").exists())
-            self.m.restore_context(t, None)
-            self.assertFalse((Path(t) / "CONTEXT.md").exists())
-
-    def test_load_spec_validates(self):
-        with tempfile.TemporaryDirectory() as t:
-            (Path(t) / "f.json").write_text(json.dumps({"structure": self.SPEC, "state": {"summary": "s"}}))
-            with self.assertRaises(SystemExit):
-                self.m.load_spec(t, "f")
-            with self.assertRaises(SystemExit):
-                self.m.load_spec(t, "missing")
-            (Path(t) / "f.json").write_text(json.dumps({"structure": self.SPEC, "state": self.SPEC}))
-            self.assertEqual(self.m.load_spec(t, "f")["state"]["summary"], self.SPEC["summary"])
-
-    def test_stats_and_table_with_variance(self):
-        s = self.m.stats([2, 4, 6])
-        self.assertEqual((s["mean"], s["sd"], s["min"], s["max"]), (4.0, 2.0, 2, 6))
-        self.assertEqual(self.m.stats([5])["sd"], 0.0)
-        self.assertIsNone(self.m.stats([None])["mean"])
-        sc = lambda a: {"exactness": a, "actionability": a, "no_invention": a}  # noqa: E731
-        mk = lambda arm, q, cr: {"arm": arm, "turns": 3, "secs": 5, "input_tokens": 10, "cache_read": cr,  # noqa: E731
-                                 "cache_creation": 7, "scores": sc(q)}
-        res = {"f": [mk("state", 3, 100), mk("state", 1, 300), mk("structure", 2, 50), mk("nothing", 0, 80)]}
-        t = self.m.summary_table3(res)
-        self.assertIn("| f | state | 2 | 6.0 | 10.0 | 200.0 | 7.0 | 207.0 | 96.6 | 3.0 | 5.0 |", t)
-        self.assertIn("f / state: quality sd 4.24 (min-max 3-9); cache_read sd 141.42 (min-max 100-300)", t)
-        self.assertIn("| f | nothing | 1 | 0.0 |", t)
-
-    def test_cache_check_uses_rate_not_raw_cache_read(self):
-        mk = lambda arm, cr, cc: {"arm": arm, "cache_read": cr, "cache_creation": cc}  # noqa: E731
-        real = {"ml-intro": [mk("state", 737, 263), mk("nothing", 699, 301)],
-                "challenge": [mk("state", 790, 210), mk("nothing", 648, 352)]}
-        lines, dropped = self.m.cache_check(real)
-        self.assertFalse(dropped)
-        self.assertIn("state=73.7%", lines[0])
-        self.assertIn("nothing=69.9%", lines[0])
-        self.assertIn("state=79.0%", lines[1])
-        self.assertIn("nothing=64.8%", lines[1])
-        lines, dropped = self.m.cache_check({"f": [mk("state", 50, 50), mk("nothing", 90, 10)]})
-        self.assertTrue(dropped)
-        self.assertIn("DROP", lines[0])
-        self.assertIn("updated", "\n".join(lines))  # recommendation
-        lines, dropped = self.m.cache_check({"f": [mk("state", 1, 1)], "g": [mk("state", 1, 1), mk("nothing", 1, 0)]})
-        self.assertIn("n/a", lines[0])
-
-    def test_enlarged_truth_dates_and_memory(self):
-        with tempfile.TemporaryDirectory() as t:
-            f = Path(t) / "proj"
-            (f / "src").mkdir(parents=True)
-            (f / "src" / "a.py").write_text("")
-            os.utime(f / "src" / "a.py", (86400 * 365, 86400 * 365))
-            (f / ".env").write_text("zzz")
-            (f / "CONTEXT.md").write_text("model output")
-            mem = Path(t) / "mem" / re.sub(r"[^A-Za-z0-9]", "-", str(f.resolve())) / "memory"
-            mem.mkdir(parents=True)
-            (mem / "m.md").write_text("fact: deadline vendredi")
-            g = self.m.enlarged_truth(f, Path(t) / "mem")
-            self.assertIn("1971-01-01  src/a.py", g)
-            self.assertIn("deadline vendredi", g)
-            for bad in ("zzz", "model output", ".env"):
-                self.assertNotIn(bad, g)
-            g2 = self.m.enlarged_truth(f, Path(t) / "none")  # absent memory: silent
-            self.assertNotIn("memory of this folder", g2)
-
-
-class TestAbJudge(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        sys.path.insert(0, str(Path(__file__).resolve().parent / "integration"))
-        import run_ab_real_folders
-        cls.m = run_ab_real_folders
-
-    def test_scrub_home_and_restore_after_exception_in_first_write(self):
-        self.assertEqual(self.m.scrub_home(f"see {Path.home()}/x"), "see ~/x")
-        with tempfile.TemporaryDirectory() as t:
-            t = Path(t)
-            f = t / "node"
-            f.mkdir()
-            orig = b"---\nctx: 1\n---\noriginal \xc3\xa9\n"
-            (f / "CONTEXT.md").write_bytes(orig)
-            vd = t / "v"
-            vd.mkdir()
-            spec = json.loads((Path(__file__).resolve().parent / "integration/variants-mirror/ml-intro.json").read_text())
-            (vd / "node.json").write_text(json.dumps(spec))
-            a = argparse.Namespace(variants_dir=str(vd), mirror_settings=None, runs=1, model="m", judge_model="m", memory_root=None)
-            m = self.m
-            saved = (m.is_declined, m.claude, m.log_size, m.write_variant)
-            real_write = m.write_variant
-
-            def write_then_fail(*x):
-                real_write(*x)
-                raise RuntimeError("after first write")
-            m.is_declined, m.log_size, m.write_variant = (lambda p: False), (lambda: 0), write_then_fail
-            try:
-                with self.assertRaises(RuntimeError):
-                    m.run_folder3(str(f), t / "out", a)
-            finally:
-                m.is_declined, m.claude, m.log_size, m.write_variant = saved
-            self.assertEqual((f / "CONTEXT.md").read_bytes(), orig)
-
-    def test_manifest_diff(self):
-        with tempfile.TemporaryDirectory() as t:
-            t = Path(t)
-            (t / "a.txt").write_text("a")
-            (t / "CONTEXT.md").write_text("x")
-            (t / ".git").mkdir()
-            (t / ".git" / "index").write_text("1")
-            b = self.m.manifest(t)
-            self.assertNotIn(".git/index", b)
-            (t / "CONTEXT.md").write_text("y")
-            (t / ".git" / "index").write_text("2")
-            d = self.m.diff_manifest(b, self.m.manifest(t))
-            self.assertEqual(d["changed"], ["CONTEXT.md"])
-            self.assertTrue(self.m.only_context_changed(d))
-            (t / "a.txt").write_text("b")
-            self.assertFalse(self.m.only_context_changed(self.m.diff_manifest(b, self.m.manifest(t))))
-
-    def test_ground_truth_skips_secrets_and_context(self):
-        with tempfile.TemporaryDirectory() as t:
-            t = Path(t)
-            (t / "README.md").write_text("hello " * 2000)
-            (t / ".env").write_text("API_KEY=zzz")
-            (t / "CONTEXT.md").write_text("model output")
-            (t / "submissions").mkdir()
-            (t / "submissions" / "s1.csv").write_text("")
-            (t / "tp1.ipynb").write_text("{}")
-            g = self.m.ground_truth(t)
-            self.assertIn("truncated", g)
-            self.assertIn("s1.csv", g)
-            self.assertIn("tp1.ipynb", g)
-            for bad in ("zzz", ".env", "model output", "CONTEXT.md"):
-                self.assertNotIn(bad, g)
-
-    def test_shuffle_blind_and_deterministic(self):
-        items = [{"arm": a, "run": i} for a in ("with_ctx", "without_ctx") for i in (1, 2)]
-        s1, s2 = self.m.shuffle_items(items, 7), self.m.shuffle_items(items, 7)
-        self.assertEqual(s1, s2)
-        self.assertEqual([b for b, _ in s1], ["A1", "A2", "A3", "A4"])
-        p = self.m.build_judge_prompt("truth", "q", "ans")
-        self.assertNotIn("with_ctx", p)
-        self.assertNotIn("CTX", p)
-
-    def test_judge_retried_once_on_invalid_json(self):
-        good = '{"exactness":3,"actionability":2,"no_invention":3,"comment":"c"}'
-        outs = ["not json at all", good]
-        calls = []
-
-        def call(prompt):
-            calls.append(prompt)
-            return outs[len(calls) - 1], "raw%d" % len(calls)
-        scores, raw = self.m.judge_with_retry(call, "P")
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(scores["exactness"], 3)
-        self.assertEqual(raw, "raw2")
-
-    def test_judge_gives_up_after_one_retry(self):
-        calls = []
-        scores, _ = self.m.judge_with_retry(lambda p: (calls.append(1) or "bad", "r"), "P")
-        self.assertIsNone(scores)
-        self.assertEqual(len(calls), 2)
-
-    def test_parse_scores_and_table(self):
-        self.assertEqual(self.m.parse_scores('ok {"exactness":3,"actionability":2,"no_invention":1,"comment":"c"}')["actionability"], 2)
-        self.assertIsNone(self.m.parse_scores('{"exactness":5,"actionability":2,"no_invention":1}'))
-        self.assertIsNone(self.m.parse_scores("nope"))
-        sc = lambda a, b, c: {"exactness": a, "actionability": b, "no_invention": c}  # noqa: E731
-        res = {"f": [{"arm": "with_ctx", "turns": 2, "tokens_in": 100, "secs": 4, "scores": sc(3, 3, 3)},
-                     {"arm": "with_ctx", "turns": 4, "tokens_in": 200, "secs": 6, "scores": sc(1, 1, 1)},
-                     {"arm": "without_ctx", "turns": 6, "tokens_in": 300, "secs": 8, "scores": None}]}
-        t = self.m.summary_table(res)
-        self.assertIn("| f | with_ctx | 2 | 2.0 | 2.0 | 2.0 | 6.0 | 3.0 | 150.0 | 5.0 |", t)
-        self.assertIn("| f | without_ctx | 1 | None |", t)

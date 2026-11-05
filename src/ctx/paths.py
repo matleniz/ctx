@@ -1,4 +1,4 @@
-"""Constants, the state dir, the log, atomic I/O, locks, the deadline and the launcher path."""
+"""Constants, the state dir, the log, atomic I/O, locks, the hook deadline and the launcher path."""
 import contextlib
 import fcntl
 import hashlib
@@ -41,15 +41,12 @@ MSG_CHARS = 2000
 FILES_MAX = 50
 DIFF_MAX = 2000
 
-# timing
-# seconds added to 2 x the rewriter timeout (first call + one retry) to get the per-node sync
-# deadline
-SYNC_MARGIN = 30
-# a sync holding a parent lock must stay well inside the shortest sync deadline
-BUBBLE_LOCK_WAIT = 30
-LIVE_WINDOW = 600  # seconds: without a pid file, a session active this recently is live
-PID_LIVE_MAX = 12 * 3600  # seconds: a live CLI pid keeps its session live at most this long idle
-MODEL_TIMEOUT = 100
+# timing (seconds)
+MODEL_TIMEOUT = 100  # one model call
+# a sync waits this long for another sync of the same node (its two model calls and a margin)
+NODE_LOCK_WAIT = 2 * MODEL_TIMEOUT + 30
+BUBBLE_LOCK_WAIT = 30  # a parent's lock, held only to rebuild its Subfolders
+IDLE_MAX = 6 * 3600  # a session without its end marker is over after this long without a hook
 HOOK_DEADLINE = 8  # seconds: a hook answers or gives up before the 10 s the CLI grants it
 
 # state dir
@@ -272,7 +269,7 @@ def deadline(secs: int) -> Iterator[None]:
     """Raise Alarm in the main thread after `secs` seconds (SIGALRM); no-op elsewhere."""
     def _on_alarm(*_):
         """Signal handler: raise the deadline alarm."""
-        raise Alarm("sync deadline")
+        raise Alarm("hook deadline")
     if threading.current_thread() is not threading.main_thread():
         yield  # SIGALRM only works in the main thread (tests); the CLI process is single-threaded
         return

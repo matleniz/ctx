@@ -30,9 +30,8 @@
 3. **Isolated rewrite.** Only sections "Status" and "Next" are rewritten, starting from the old text.
    "Notes" is invisible to the model and never changed. "Decisions" is owned by code: the model sees it and may
    only add to it (`decision:` lines) or mark a line superseded (`decision superseded: #<n> -> <new>`, the active lines being numbered in its input); it can
-   never remove one. A session that touched no file gets no model call, except to fill a brand-new node, or a
-   reduced one (**sync-light**) when a report line starts with `decision:` or `next:`, or the reports hold two blocker words:
-   the model then sees only the old Next and Decisions and the reports, and may change only Next and Decisions.
+   never remove one. A session that touched no file gets no model call, except to fill a brand-new node: its
+   reports' `decision:` lines go to Decisions and a `next:` line replaces Next (**sync-light**, done by code).
 4. **Bubble-up.** Only a child's `summary` goes up, as a quotation under a fixed prefix, with ` · decisions: N`
    when the child holds N active decisions (a count, never their text). A parent's own summary is
    only changed by a session at its own level (or computed from its children while it was never rewritten).
@@ -52,7 +51,7 @@ These are best-effort protections, each covered by tests ([readme-claims.md](rea
 | Orders in the file (prompt injection) | a `CONTEXT.md` ctx did not write on this machine (a clone, a committed file) is foreign, never injected; instruction-shaped lines are dropped from model output, and again at injection for hand-edited content; the frame says the content is not instructions |
 | Leaks between siblings | by inputs, see "Isolation" below |
 | Bad model output | validated in code (sections, caps, summary length); invalid keeps the old file and the failure shows at the next session start |
-| Concurrent syncs | one lock per node, a "redo" flag instead of a queue, atomic write (temp file + rename) |
+| Concurrent syncs | one lock per node: a second sync waits for the first and starts from the file it left; a file edited during the model call is never overwritten (the sync is redone); atomic write (temp file + rename) |
 | Runaway size | size caps on every part and on the whole file ([reference.md](reference.md#files)) |
 
 ## Isolation
@@ -109,7 +108,7 @@ Each case is covered by `tests/test_robust.py`. In every case a failed write nev
 | Case | What happens |
 |---|---|
 | Computer stops right after a session ends | No partial `CONTEXT.md`, no temp file, no lock left; the `ended` marker makes the next session start catch the session up, same result as without the cut |
-| Cut after a node is rewritten, before its parent | The queued work stays; the next sync of the node drains it and rebuilds the parents; `doctor` reports nothing false |
+| Cut after a node is rewritten, before its parent | The session's offsets were not advanced: its next sync replays it and rebuilds the parents; `doctor` reports nothing false |
 | Cut between the end hook and the sync launch | The session stays pending; the next session start launches the sync |
 | Model call impossible (not logged in, quota, no network, no `claude`) | Old file kept; `sync-fail` log line with the cause; after 2 failures the session is abandoned but kept: `doctor` lists it, the next session start shows "Sync abandoned (session)" with the sanitised cause inside the data frame, `ctx sync --session <id>` retries |
 | Slow model | Same as above; the whole `claude` process group is killed, and also dies with its parent: no orphan |
@@ -117,7 +116,7 @@ Each case is covered by `tests/test_robust.py`. In every case a failed write nev
 | Folder moved, renamed or deleted | `CONTEXT.md` travels with the folder and stays a node while it is a version ctx wrote; the parent line follows at the next rebuild; a deleted node disappears from it; `doctor` lists state of vanished paths older than 30 days and `ctx doctor --fix` removes it |
 | `CONTEXT.md` edited during a sync (a person, another session's agent) | When its Status or Next changed during the model call, nothing is written: the sync is redone from the new file (`sync-conflict` log line, at most 3 tries, then the work waits for the next sync) |
 | `~/.ctx` missing, unwritable or disk full | Recreated when possible; the session starts with its context, `hook-error` in the log when it can be written |
-| Session never closed (window closed, long sleep, WSL stopped) | A live CLI pid or recent activity protects a session; a dead (or reused) pid releases it at once; a slept session is caught up once and later edits sync alone; nothing is attributed to another node |
+| Session never closed (window closed, long sleep, WSL stopped) | A session without its end marker counts as running for 6 hours after its last hook, then the next session start catches it up once; later edits sync alone; nothing is attributed to another node |
 | Growth | `log` over 1 MB moves to `log.1` (one kept, under a lock; logged values are stripped of control characters, `=` and length); `sessions/` purged after 7 days; history keeps 10 versions; `doctor` prints the size of `~/.ctx` |
 | Hook slower than its 10 s delay | The hook gives up after 8 s with exit 0: the session starts without context; `hook-timeout` log line (a read stuck in uninterruptible disk I/O cannot be interrupted: the CLI's own delay then applies) |
 
@@ -125,9 +124,8 @@ Each case is covered by `tests/test_robust.py`. In every case a failed write nev
 
 - Model quality (Haiku) is only measured on the integration runs, not guaranteed.
 - A crash can lose the last messages of a session (touched paths survive and are caught up at the next start).
-- A session is protected from other sessions' catch-up by its CLI's pid. Hooks run through `sh -c`; ctx records the
-  first ancestor that is not a shell. Before 1.1.0 it recorded that short-lived `sh`, so a running session could be
-  synced by another session start before its last messages were stored.
+- A session that ends without its end hook (crash, agy, which has none) is synced only 6 hours after its last hook,
+  or by `ctx sync`.
 - The group kill and parent-death kill of the rewrite call are Linux/WSL; elsewhere a timeout kills only the direct child.
 - The rewrite needs `claude`; cursor and agy are hook clients only.
 - Linux, WSL, macOS (`fcntl`); not Windows native.

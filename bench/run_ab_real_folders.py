@@ -6,7 +6,7 @@ node, a read-only bootstrap session (Haiku) so the node gets its first CONTEXT.m
 2x with ctx and 2x with CTX_OFF=1 (Haiku, read-only tools), and a blind Sonnet judge (one call per
 answer, shuffled, no arm label, no tools) scoring 0-3 against the folder's readable files.
 
-Usage: python3 tests/integration/run_ab_real_folders.py FOLDER... [--out DIR] [--mirror-settings FILE]
+Usage: python3 bench/run_ab_real_folders.py FOLDER... [--out DIR] [--mirror-settings FILE]
                                               [--runs 2] [--model haiku] [--judge-model sonnet]
 Default: the real global hooks (~/.claude/settings.json). With --mirror-settings FILE the hooks come from
 FILE via --settings and --setting-sources project,local (test tree: point CTX_HOME at it).
@@ -18,7 +18,7 @@ this file. Variants are written through the node's CONTEXT.md only (rewritten be
 hook syncs it) and the original bytes are restored at the end. The judge ground truth is enlarged with
 file/folder mtimes and the folder's Claude Code auto-memory (read-only, judge prompt only, never saved).
 Output: OUT/<folder>/..., OUT/SUMMARY.md (quality, tokens, cache_read, variance, cache check).
-  python3 tests/integration/run_ab_real_folders.py ~/courses/ml-intro ~/courses/challenge --variants-dir DIR --runs 3 --out /tmp/ctx-ab
+  python3 bench/run_ab_real_folders.py ~/courses/ml-intro ~/courses/challenge --variants-dir DIR --runs 3 --out /tmp/ctx-ab
 
 Never touches git state, ~/.claude/settings.json, ~/.ctxignore or ~/.ctx/declined; declined folders are refused.
 """
@@ -35,7 +35,7 @@ import tempfile
 import time
 from pathlib import Path
 
-CTX_DIR = Path(__file__).resolve().parents[2]
+CTX_DIR = Path(__file__).resolve().parents[1]
 CTX_PY = CTX_DIR / "ctx.py"
 BOOT_PROMPT = "fais le point sur ce dossier en 10 lignes"
 TASK = ("Status et que faire ensuite ? Donne les 3 prochaines actions concrètes, "
@@ -216,7 +216,7 @@ def load_spec(variants_dir, name):
     """DIR/<name>.json = {"structure": {"summary", "status": [..], "next": [..]}, "state": {...}}."""
     p = Path(variants_dir) / f"{name}.json"
     if not p.is_file():
-        raise SystemExit(f"no variant spec for {name}: expected {p} (see tests/integration/variants-template.json)")
+        raise SystemExit(f"no variant spec for {name}: expected {p} (see bench/variants-template.json)")
     spec = json.loads(p.read_text(encoding="utf-8"))
     for arm in ("structure", "state"):
         v = spec.get(arm) or {}

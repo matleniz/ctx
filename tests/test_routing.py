@@ -63,7 +63,7 @@ class ContainerSync(test_ctx.Base):
         ctx.sync.sync_targets("s1", {self.home: []}, ["what is going on?"], fake)
         self.assertEqual(fake.calls, [])
         self.assertNotEqual(self.doc("").summary, "No work state is recorded here")
-        self.assertIn("container, no file of its own", (self.home / ".ctx" / "log").read_text())
+        self.assertIn("no file routed to node", (self.home / ".ctx" / "log").read_text())
 
     def test_talk_only_session_still_bootstraps_a_project_node(self):
         fake = Fake(test_ctx.fake_output(summary="Looked around"))

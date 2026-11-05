@@ -1,9 +1,9 @@
-"""Pure parts of the long-run benchmark harness (tests/integration/run_longrun.py): no model call."""
+"""Pure parts of the long-run benchmark harness (bench/run_longrun.py): no model call."""
 import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "integration"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_longrun as lr  # noqa: E402
 
 

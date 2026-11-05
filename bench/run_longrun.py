@@ -3,19 +3,19 @@
 
 Each session is a new `claude -p` process (no --resume): continuity can only come from the files and, in arm A, from
 the node's CONTEXT.md (injected at start, rewritten by the real hooks after the session). Two scenarios built from
-scratch (tests/integration/longrun/<scenario>/, prompts in scenarios.json); every run starts from a fresh copy of the
+scratch (bench/longrun/<scenario>/, prompts in scenarios.json); every run starts from a fresh copy of the
 pristine folder under a temporary home (CTX_HOME), so ctx's state, nodes and log never touch the real ~/.ctx.
 
-Per session: tokens, turns, seconds, cost; harness checks (tests/integration/longrun/checks.py) before and after;
+Per session: tokens, turns, seconds, cost; harness checks (bench/longrun/checks.py) before and after;
 in arm A the CONTEXT.md after the sync, the rewrite tokens (from the test-home log) and a rule-based accuracy count
 of its Status lines against the harness ground truth. Then (step `judge`) a blind Sonnet judge per session scores
 continuity 0-3 on three criteria. Step `summary` writes OUT/SUMMARY.md.
 
 Usage (hooks file from `python3 ctx.py install-hooks claude --settings-file FILE --yes`):
-  python3 tests/integration/run_longrun.py run --home /tmp/ctx-long/home --hooks /tmp/ctx-long/hooks.json \
+  python3 bench/run_longrun.py run --home /tmp/ctx-long/home --hooks /tmp/ctx-long/hooks.json \
       --out /tmp/ctx-long/out [--scenarios course-notebooks,small-project] [--arms A,B] [--reps 3] [--sessions 10]
-  python3 tests/integration/run_longrun.py judge --home /tmp/ctx-long/home --out /tmp/ctx-long/out
-  python3 tests/integration/run_longrun.py summary --out /tmp/ctx-long/out
+  python3 bench/run_longrun.py judge --home /tmp/ctx-long/home --out /tmp/ctx-long/out
+  python3 bench/run_longrun.py summary --out /tmp/ctx-long/out
 """
 import argparse
 import concurrent.futures as cf

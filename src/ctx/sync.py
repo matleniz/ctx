@@ -1,107 +1,105 @@
-"""Per-node queue, rewrite, session sync, bash scan, deadlines."""
+"""Node lock, rewrite, sync-light, session sync, bash scan."""
 import collections
 import contextlib
 import fnmatch
 import json
 import os
+import re
 import time
-import uuid
 from pathlib import Path
 from typing import Callable
 
 from .paths import (
-    Alarm, BUBBLE_LOCK_WAIT, CONFLICT_RE, EMPTY_BODIES, FILES_MAX, MARKER, MAX_NEXT, MAX_NEXT_LINES,
-    MAX_STATUS, MAX_STATUS_LINES, PLACEHOLDERS, MAX_SUMMARY, MAX_TOTAL, MODEL_TIMEOUT, MSG_KEEP,
-    SCAN_MAX, SCAN_SKIP_DIRS, SCAN_SKIP_FILES, SCAN_SLACK, SEC_DECISIONS, SEC_NEXT, SEC_NOTES,
-    SEC_STATUS, SEC_SUBS, SYNC_MARGIN, atomic_write, deadline, dirlock, log, path_key, read_json,
-    clip, real, root, set_session, stamp, state_dir,
+    BUBBLE_LOCK_WAIT, CONFLICT_RE, EMPTY_BODIES, FILES_MAX, MARKER, MAX_NEXT, MAX_NEXT_LINES,
+    MAX_STATUS, MAX_STATUS_LINES, PLACEHOLDERS, MAX_SUMMARY, MAX_TOTAL, NODE_LOCK_WAIT, SCAN_MAX,
+    SCAN_SKIP_DIRS, SCAN_SKIP_FILES, SCAN_SLACK, SEC_DECISIONS, SEC_NEXT, SEC_NOTES, SEC_STATUS,
+    SEC_SUBS, atomic_write, clip, dirlock, log, real, root, set_session, stamp,
 )
-from .filters import redact
+from .filters import filter_lines, redact
 from .doc import Doc, get_status, is_auto, merge_decisions, numbered, parse, read_doc, render
 from .doc import own_version, set_status, write_doc, written_doc
 from .tree import accepts, bubble, build_subs, has_ctx, is_ignored, nearest_node
 from .sessions import Pending, session_dir_of, session_pending
 from .rewriter import (
-    DECISION_RE, LIGHT_PROMPT, ModelOutput, SYSTEM_PROMPT, build_prompt, cli_rewriter, git_diffstat,
-    light_worthy, parse_model_output,
+    DECISION_RE, ModelOutput, SYSTEM_PROMPT, build_prompt, cli_rewriter, git_diffstat,
+    parse_model_output, trim_section,
 )
 
-
-def queue_dir(node: str | Path) -> Path:
-    """The node's queue of pending work."""
-    return state_dir() / "pending" / path_key(node)
-
-
-def enqueue(node: str | Path, files: list[str], msgs: list[str], light: bool = False) -> None:
-    """Add one work item (files, reports, light: reports only, Next and Decisions) to the queue."""
-    q = queue_dir(node)
-    q.mkdir(parents=True, exist_ok=True)
-    item = json.dumps({"files": files, "msgs": msgs, "light": light})
-    atomic_write(q / f"{time.time_ns()}-{uuid.uuid4().hex[:6]}.json", item)
+MAX_CONFLICTS = 3  # attempts of one sync_node while the file keeps changing under it
+NEXT_RE = re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:next|prochaine étape)[ \t]*:[ \t]*(.+)$",
+                     re.I | re.M)
 
 
-def has_pending(node: str | Path) -> bool:
-    """True when the node's queue holds work."""
-    q = queue_dir(node)
-    return q.is_dir() and any(q.glob("*.json"))
+def sync_node(node: str | Path, files: list[str], msgs: list[str], rewriter: Callable) -> str:
+    """Rewrite the node under its lock. Returns 'ok', 'none', 'fail' or 'busy'.
 
-
-def drain(node: str | Path) -> tuple[list[Path], list[str], list[str], bool]:
-    """The node's queued work: (queue files, merged touched files, last reports, all light?).
-
-    The queue files are not removed: the caller does it once the rewrite is settled.
+    A second sync of the node waits for the first (NODE_LOCK_WAIT), then starts from the file it
+    left; 'busy' when the wait runs out: the session's work stays pending for the next catch-up.
     """
-    q = queue_dir(node)
-    items, files, msgs, light = [], [], [], True
-    for f in sorted(q.glob("*.json")) if q.is_dir() else []:
-        item = read_json(f, {"files": [], "msgs": []})
-        light = light and item.get("light", False)
-        files += [x for x in item["files"] if x not in files]
-        msgs += [m for m in item["msgs"] if m not in msgs]
-        items.append(f)
-    return items, files, msgs[-MSG_KEEP:], light
-
-
-def sync_node(node: str | Path, files: list[str], msgs: list[str], rewriter: Callable,
-              light: bool = False) -> str:
-    """Queue the work then try to become the single syncer. Returns 'ok'|'queued'|'fail'|'none'."""
     node = real(node)
-    enqueue(node, files, msgs, light)
-    result, conflicts = "queued", 0
-    while True:
-        with dirlock(node, blocking=False) as got:
-            if not got:
-                log("sync-queued", node=node)
+    with dirlock(node, timeout=NODE_LOCK_WAIT) as got:
+        if not got:
+            log("sync-busy", node=node, why=f"another sync held the node {NODE_LOCK_WAIT}s")
+            return "busy"
+        for _ in range(MAX_CONFLICTS):
+            result = _rewrite_locked(node, files, msgs, rewriter)
+            if result != "conflict":
                 return result
-            items, node_files, queued_msgs, light = drain(node)
-            if items:
-                try:
-                    result = _rewrite_locked(node, node_files, queued_msgs, rewriter, light)
-                except BaseException:  # incl. the deadline alarm: the drained work stays queued
-                    log("sync-requeue", node=node, items=len(items))
-                    raise
-                if result == "conflict":  # the items stay queued: redo from the new file
-                    conflicts += 1
-                    if conflicts < MAX_CONFLICTS:
-                        continue
-                    set_status(node, False, "CONTEXT.md kept changing during the sync")
-                    result = "fail"
-                if result == "fail":
-                    return result  # keep the drained items queued for the next sync
-                for f in items:  # consumed only once the rewrite is settled
-                    with contextlib.suppress(OSError):
-                        f.unlink()
-        # lock released. Re-check the queue: a syncer that failed to get the lock while we were
-        # draining/rewriting left its work here and relies on us (no lost wakeup).
-        if not has_pending(node):
-            return result if result != "queued" else "none"
+    set_status(node, False, "CONTEXT.md kept changing during the sync")
+    return "fail"
 
 
-MAX_CONFLICTS = 3  # attempts of one sync_node before the work is left for the next sync
+def mark_synced(node: Path, worked: bool) -> None:
+    """Record a successful sync; `worked` (files touched) dates the node's state.
+
+    The state's `worked` is the time of the last sync with touched files; False while only
+    read-only bootstraps happened.
+    """
+    prior = get_status(node) or {}
+    set_status(node, True, worked=stamp() if worked else prior.get(
+        "worked", None if "status" in prior else False))
 
 
-def _rewrite_locked(node, files, msgs, rewriter, light=False):
-    """Rewrite the node (light: reports in, Next/Decisions out); caller holds the lock. SYNC_*."""
+def sync_light(node: Path, sid: str, msgs: list[str]) -> str:
+    """A session that changed no file of the node: no model call. Returns 'ok', 'none' or 'busy'.
+
+    The reports' `decision:` lines go to Decisions (merge_decisions) and their `next:` (or
+    `prochaine étape:`) lines replace Next, through the same filters as a model answer.
+    """
+    text = "\n".join(msgs)
+    decisions, k = filter_lines("\n".join(x.strip() for x in DECISION_RE.findall(text)))
+    nxt, k2 = filter_lines("\n".join("- " + x.strip() for x in NEXT_RE.findall(text)))
+    decisions = [x for x in decisions.split("\n") if x.strip()]
+    nxt = trim_section(nxt.strip(), MAX_NEXT_LINES, MAX_NEXT) if nxt.strip() else ""
+    if not decisions and not nxt:
+        log("skip", node=node, session=sid,
+            why="no file routed to node, no decision: or next: line in the reports")
+        return "none"
+    with dirlock(node, timeout=NODE_LOCK_WAIT) as got:
+        if not got:
+            log("sync-busy", node=node, why=f"another sync held the node {NODE_LOCK_WAIT}s")
+            return "busy"
+        doc = merged_base(node, read_doc(node), trust_file=True)
+        doc.meta.setdefault(MARKER, "1")
+        if nxt:
+            doc.sections[SEC_NEXT] = nxt
+        merged, dropped = merge_decisions(doc.sections.get(SEC_DECISIONS, ""), decisions)
+        if merged or SEC_DECISIONS in doc.sections:
+            doc.sections[SEC_DECISIONS] = merged
+        for line in dropped:
+            log("decision-dropped", node=node, why="over the Decisions cap", line=line)
+        doc.sections[SEC_SUBS] = build_subs(node)
+        changed = write_doc(node, doc)
+        mark_synced(node, worked=False)
+    log("sync-light", node=node, decisions=len(decisions), next=bool(nxt), changed=changed)
+    if k + k2:
+        log("filtered", node=node, count=k + k2, why="secrets/instruction-shaped lines")
+    bubble(node)
+    return "ok"
+
+
+def _rewrite_locked(node, files, msgs, rewriter):
+    """Rewrite the node; the caller holds its lock. 'ok', 'none', 'fail' or 'conflict'."""
     started = time.time()
     p = Path(node) / "CONTEXT.md"
     own = [f for f in files if os.path.basename(f) == "CONTEXT.md"]
@@ -111,35 +109,32 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
     except OSError:
         return "fail"
     old = parse(old_text)
-    diffstat = "" if light else git_diffstat(node)
+    diffstat = git_diffstat(node)
     if not files and not msgs and not diffstat and not own:
         bubble(node)
         return "none"
-    prompt, redactions = rewrite_prompt(node, old, files, msgs, diffstat, light)
+    prompt, redactions = rewrite_prompt(node, old, files, msgs, diffstat)
     subs = build_subs(node)
     trims = []
     writer = "model"
     try:
-        output = adopt_agent_state(node, old, msgs, subs, trims) if own and not light else None
+        output = adopt_agent_state(node, old, msgs, subs, trims) if own else None
         if output is not None:
             writer, info = "agent", {"in": 0, "out": 0, "secs": 0}
         else:
-            output, info = ask_model(node, rewriter, prompt, subs, trims, light)
-        changed = apply_rewrite(node, old, output, trims, light, own=bool(own))
+            output, info = ask_model(node, rewriter, prompt, subs, trims)
+        changed = apply_rewrite(node, old, output, trims, own=bool(own))
         if changed is None:
             log("sync-conflict", node=node, why="Status or Next edited during the sync: redone "
                 "from the new file")
             return "conflict"
-        # worked: time of the last sync with touched files; False: read-only bootstraps only
-        prior = get_status(node) or {}
-        set_status(node, True, worked=stamp() if files else prior.get(
-            "worked", None if "status" in prior else False))
+        mark_synced(node, worked=bool(files))
     except Exception as e:  # invalid, model or write failure: keep the old file, count as failed
         with contextlib.suppress(Exception):
             set_status(node, False, f"{type(e).__name__}: {e}")
         log("sync-fail", node=node, error=f"{type(e).__name__}: {e}")
         return "fail"
-    log("sync-light" if light else "sync", node=node, files=len(files), changed=changed,
+    log("sync", node=node, files=len(files), changed=changed,
         writer=writer, tokens_in=info.get("in", 0), tokens_out=info.get("out", 0),
         model_secs=info.get("secs", 0), total_secs=round(time.time() - started, 1))
     if output.filtered + redactions:
@@ -190,7 +185,7 @@ def adopt_agent_state(node: Path, cur: Doc, msgs: list[str], subs: str,
 
 
 def rewrite_prompt(node: Path, old: Doc, files: list[str], msgs: list[str],
-                   diffstat: str, light: bool = False) -> tuple[str, int]:
+                   diffstat: str) -> tuple[str, int]:
     """The rewrite prompt and the number of redactions made in it.
 
     Inputs: the old Status/Next and summary, the reports, the diff stat and the files, all redacted.
@@ -200,7 +195,7 @@ def rewrite_prompt(node: Path, old: Doc, files: list[str], msgs: list[str],
     sec_view = Doc()
     # never show a placeholder/computed summary
     sec_view.meta = {"summary": "" if is_auto(old) else old.summary}
-    shown = (SEC_NEXT, SEC_DECISIONS) if light else (SEC_STATUS, SEC_NEXT, SEC_DECISIONS)
+    shown = (SEC_STATUS, SEC_NEXT, SEC_DECISIONS)
     sec_view.sections = {s: numbered(v) if s == SEC_DECISIONS else v
                          for s, v in old.sections.items() if s in shown}
     parts = []
@@ -210,48 +205,46 @@ def rewrite_prompt(node: Path, old: Doc, files: list[str], msgs: list[str],
         parts.append(t)
     old_s, msgs_s, diff_s, rel_s = parts
     prompt = build_prompt(old_s, rel_s.split("\n") if rel_s else [],
-                          msgs_s.split("\n---\n") if msgs_s else [], diff_s, light)
+                          msgs_s.split("\n---\n") if msgs_s else [], diff_s)
     return prompt, redactions
 
 
 def ask_model(node: Path, rewriter: Callable, prompt: str, subs: str,
-              trims: list[str], light: bool = False) -> tuple[ModelOutput, dict]:
+              trims: list[str]) -> tuple[ModelOutput, dict]:
     """Call the model, with one retry naming the violation if the output is rejected.
 
     Returns (parsed output, call info).
     """
-    system = LIGHT_PROMPT if light else SYSTEM_PROMPT
-    text, info = rewriter(system, prompt)
+    text, info = rewriter(SYSTEM_PROMPT, prompt)
     try:
-        return parse_model_output(text, subs, trims, light=light), info
+        return parse_model_output(text, subs, trims), info
     except ValueError as first:
         # other violations (secrets, copied subfolder state, missing sections...): one retry;
         # over-bounds is trimmed, not retried
         trims.clear()
         log("rewrite-retry", node=node, why=first)
-        limits = "" if light else (f"SUMMARY <= {MAX_SUMMARY} characters, '{SEC_STATUS}' <= "
-                                   f"{MAX_STATUS_LINES} lines and {MAX_STATUS} characters, ")
         retry = (f"\nYour previous answer was rejected ({first}). "
-                 f"Answer again, strictly within the limits ({limits}"
+                 f"Answer again, strictly within the limits (SUMMARY <= {MAX_SUMMARY} characters, "
+                 f"'{SEC_STATUS}' <= {MAX_STATUS_LINES} lines and {MAX_STATUS} characters, "
                  f"'{SEC_NEXT}' <= {MAX_NEXT_LINES} lines and {MAX_NEXT} characters). Be terse. "
                  "Keep only facts about this folder and its subfolders; "
                  "never copy a subfolder's own state lines.")
-        text, info = rewriter(system, prompt + retry)
+        text, info = rewriter(SYSTEM_PROMPT, prompt + retry)
     try:
-        return parse_model_output(text, subs, trims, light=light), info
+        return parse_model_output(text, subs, trims), info
     except ValueError as second:
         log("rewrite-retry-fail", node=node, why=second)
         raise
 
 
 def apply_rewrite(node: Path, old: Doc, output: ModelOutput, trims: list[str],
-                  light: bool = False, own: bool = False) -> bool | None:
+                  own: bool = False) -> bool | None:
     """Write the model's summary, Status and Next over the current file; returns changed?
 
     None, writing nothing, when Status or Next changed since `old` was read (another session or a
     person edited the file during the model call): the caller redoes the sync from the new file.
     The base is merged_base (`own`: the session edited the file through its tools); the model's
-    `decision:` lines are merged into Decisions. light: only Next and Decisions change.
+    `decision:` lines are merged into Decisions.
     """
     cur = read_doc(node)
     if any(cur.sections.get(n, "").strip() != old.sections.get(n, "").strip()
@@ -259,11 +252,9 @@ def apply_rewrite(node: Path, old: Doc, output: ModelOutput, trims: list[str],
         return None
     cur = merged_base(node, cur, trust_file=not own)
     cur.meta.setdefault(MARKER, "1")
-    if not light:
-        cur.meta["summary"] = output.summary
-        # rewritten at its own level: bubble-up no longer overwrites it
-        cur.meta.pop("summary-source", None)
-        cur.sections[SEC_STATUS] = output.status
+    cur.meta["summary"] = output.summary
+    cur.meta.pop("summary-source", None)  # rewritten at its own level: bubble-up keeps it
+    cur.sections[SEC_STATUS] = output.status
     cur.sections[SEC_NEXT] = output.next_step
     decisions, dropped = merge_decisions(cur.sections.get(SEC_DECISIONS, ""), output.decisions)
     if decisions or SEC_DECISIONS in cur.sections:
@@ -277,11 +268,6 @@ def apply_rewrite(node: Path, old: Doc, output: ModelOutput, trims: list[str],
     if trims:
         log("trimmed", node=node, what="; ".join(trims))
     return write_doc(node, cur)
-
-
-def sync_deadline() -> int:
-    """Per-node sync deadline: the rewriter may run twice (retry) at its timeout, plus a margin."""
-    return 2 * MODEL_TIMEOUT + SYNC_MARGIN
 
 
 def needs_bootstrap(node: str | Path) -> bool:
@@ -439,7 +425,7 @@ def scan_changed(node: Path, since: float, until: float,
 
 
 def sync_session(sid: str, rewriter: Callable = cli_rewriter) -> str:
-    """Sync the pending work of one session; returns a SYNC_*/SESSION_* value.
+    """Sync the pending work of one session: 'ok', 'fail', 'busy', 'nothing' or 'nosession'.
 
     Log lines written meanwhile carry the session id.
     """
@@ -473,9 +459,14 @@ def _sync_session(sid, rewriter):
         # reflection-only session: launch folder node
         if not any(targets.values()) and launch is not None:
             targets.setdefault(launch, [])
-        failed = "fail" in sync_targets(sid, targets, msgs, rewriter)
-        record_session_result(session_dir, pending, failed, targets, scanned)
-        return "fail" if failed else "ok"
+        results = sync_targets(sid, targets, msgs, rewriter)
+        if "fail" in results:
+            record_session_result(session_dir, pending, True, targets, scanned)
+            return "fail"
+        if "busy" in results:  # not synced, not failed: the next catch-up retries it
+            return "busy"
+        record_session_result(session_dir, pending, False, targets, scanned)
+        return "ok"
 
 
 def session_window(session_dir: Path) -> tuple[float, float]:
@@ -485,11 +476,11 @@ def session_window(session_dir: Path) -> tuple[float, float]:
     """
     since = (session_dir / "cwd").stat().st_mtime
     # window end: the SessionEnd marker, else the session's last hook activity (a crashed or
-    # pid-less session caught up later must not claim files changed long after it stopped)
+    # session caught up later must not claim files changed long after it stopped)
     until = since + SCAN_SLACK  # no activity file readable: claim nothing beyond the start
     acts = []
     for x in session_dir.iterdir():
-        if x.name in ("synced.json", "closed") or (x.name.startswith(".")
+        if x.name == "synced.json" or (x.name.startswith(".")
                                                     and x.name.endswith(".tmp")):
             continue
         try:
@@ -528,14 +519,13 @@ def bash_scan(session_dir: Path, sid: str, cwd: str, targets: dict, launch: Path
 
 
 def sync_targets(sid: str, targets: dict, msgs: list[str], rewriter: Callable) -> list[str]:
-    """Sync each target node, deepest first, under the per-node deadline.
+    """Sync each target node, deepest first; returns the list of results.
 
-    Returns the list of results.
+    A node that got no file of the session gets a sync-light (no model call), except a project
+    node never written at its own level: a read-only session may fill it a first time.
     """
     results = []
     for node, node_files in sorted(targets.items(), key=lambda kv: -len(kv[0].parts)):
-        # nothing of this session landed in the node: no call, unless light_worthy (sync-light);
-        # a container is never bootstrapped by a session that only talked in it
         work = [f for f in node_files if os.path.basename(f) != "CONTEXT.md"]
         if len(work) < len(node_files) and not agent_state_changed(node, read_doc(node)):
             # CONTEXT.md edited without new state (Notes): nothing to adopt, the edit is settled
@@ -543,16 +533,11 @@ def sync_targets(sid: str, targets: dict, msgs: list[str], rewriter: Callable) -
             node_files = work
         container = not node_files and not read_doc(node).absorb
         light = not node_files and (container or not needs_bootstrap(node))
-        if light and not light_worthy(msgs):
-            log("skip", node=node, session=sid, why="container, no file of its own" if container
-                else "no file routed to node, summary already filled")
-            continue
         try:
-            with deadline(sync_deadline()):
-                results.append(sync_node(node, node_files, msgs, rewriter, light))
-        except (Alarm, Exception) as e:
-            # never escape before synced.json counts the failure (bounded retries)
-            err = "deadline" if isinstance(e, Alarm) else f"{type(e).__name__}: {e}"
+            results.append(sync_light(node, sid, msgs) if light
+                           else sync_node(node, node_files, msgs, rewriter))
+        except Exception as e:  # never escape before synced.json counts the failure
+            err = f"{type(e).__name__}: {e}"
             log("sync-fail", node=node, error=err)
             with contextlib.suppress(Exception):
                 set_status(node, False, err)

@@ -6,7 +6,7 @@ ctx, from the folder's `CONTEXT.md` (injected at session start, rewritten after 
 
 ## Method
 
-- **Scenarios** (built from scratch, `tests/integration/longrun/`, prompts in `scenarios.json`):
+- **Scenarios** (built from scratch, `bench/longrun/`, prompts in `scenarios.json`):
   - `course-notebooks`: 4 chapters x 2 Python exercise stubs (docstring = what to implement) and `notes.md`.
     Requests: exercise 1.1, 1.2, chapter-1 notes, 2.1 with a decision (D1: no for/while loops, type hints everywhere),
     "Next exercise.", a review (the harness silently replaced `ch1/ex1_2.py` by a version dividing by n-1), "Where
@@ -25,7 +25,7 @@ ctx, from the folder's `CONTEXT.md` (injected at session start, rewritten after 
   auto-memory off (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`) so it is not a hidden channel in either arm.
 - **Progress on the next item**: a progress session counts when it finished one of its explicit targets or the
   first exercise / TODO item not done before it (a terse "next item" may legitimately land on either).
-- **Objective measures** (harness, `tests/integration/longrun/checks.py`, run before and after every session):
+- **Objective measures** (harness, `bench/longrun/checks.py`, run before and after every session):
   per exercise / TODO item a behavioural check of the code; D1 compliance (AST: no for/while, every argument and
   return annotated; or no third-party import); the injected bug fixed; the package tests (`python3 -m unittest`);
   redo = a progress session that re-worked something already done instead of its target.
@@ -259,10 +259,10 @@ during the run (size checked before and after; no line mentions the test home).
 
 ```
 python3 ctx.py install-hooks claude --emit /tmp/ctx-long/hooks.json
-python3 tests/integration/run_longrun.py run --home /tmp/ctx-long/home --hooks /tmp/ctx-long/hooks.json --out /tmp/ctx-long/out
+python3 bench/run_longrun.py run --home /tmp/ctx-long/home --hooks /tmp/ctx-long/hooks.json --out /tmp/ctx-long/out
 # run 2 (ctx arm only): add --arms A --max-sessions 70
-python3 tests/integration/run_longrun.py judge --home /tmp/ctx-long/home --out /tmp/ctx-long/out
-python3 tests/integration/run_longrun.py summary --out /tmp/ctx-long/out
+python3 bench/run_longrun.py judge --home /tmp/ctx-long/home --out /tmp/ctx-long/out
+python3 bench/run_longrun.py summary --out /tmp/ctx-long/out
 ```
 
 Smoke: add `--scenarios course-notebooks --arms A --reps 1 --sessions 2 --workers 1` to `run`. Raw per-session

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Benchmark of ctx on real folders: two tasks per folder, with ctx (real hooks) vs without (CTX_OFF=1).
 
-Tasks: tests/integration/benchmark-tasks.json (generic labels). Map: a local, unpublished JSON file
+Tasks: bench/benchmark-tasks.json (generic labels). Map: a local, unpublished JSON file
 {"redact": [words], "folders": {label: {"path": "~/...", "reference": {task_id: text}}}} that gives each label its
 real folder, an optional reference answer per task (judge only) and words to redact from everything written.
 
@@ -16,7 +16,7 @@ Phases (each one resumable: a run or a judgement already on disk is not redone):
             final sha256 manifest check. Writes OUT/SUMMARY.md and OUT/results.json.
 
 Usage:
-  python3 tests/integration/run_benchmark.py --map MAP.json --out OUT [--runs 5] [--labels a,b]
+  python3 bench/run_benchmark.py --map MAP.json --out OUT [--runs 5] [--labels a,b]
          [--tasks-filter resume,specific] [--model haiku] [--judge-model sonnet] [--phase all|sessions|judge|stats]
          [--tag NAME] [--seed 20261104]
 Never touches git state, ~/.claude/settings.json, ~/.ctxignore or ~/.ctx/declined. Leave CTX_HOME unset for the real
@@ -1120,7 +1120,7 @@ def main(argv=None):
     ap.add_argument("--secondary", default="main:main", help="report: with-set:without-set of the secondary comparison")
     ap.add_argument("--extra-sets", default="sonnet", help="report: other tags whose numbers are published")
     ap.add_argument("--bootstrap", type=int, default=5000)
-    ap.add_argument("--results-file", default=str(HERE.parents[1] / "docs" / "benchmark-results.json"),
+    ap.add_argument("--results-file", default=str(HERE.parent / "docs" / "benchmark-results.json"),
                     help="report: where the published aggregate JSON goes (numbers only, generic labels)")
     a = ap.parse_args(argv)
     b = Bench(a)

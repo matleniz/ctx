@@ -317,13 +317,13 @@ def _idle_secs(e):
 
 
 def orphans(unreachable: list | None = None) -> list[tuple[str, Path, str]]:
-    """State, history and queue entries of vanished folders: [(kind, path, folder)].
+    """State and history entries of vanished folders: [(kind, path, folder)].
 
     Only folders that no longer exist and were not touched for PURGE_DAYS. Folders whose parent is
     unreachable are skipped (their paths are appended to `unreachable`).
     """
     out = []
-    for kind in ("history", "state", "pending"):
+    for kind in ("history", "state"):
         for e in sorted((state_dir() / kind).glob("*")):
             if e.is_file():
                 src = read_json(e, {}).get("path")

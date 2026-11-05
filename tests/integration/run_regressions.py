@@ -91,11 +91,11 @@ def main():
     say(f"sessions with a 'touched' file (PostToolUse saw Write/Edit): {touched}")
     ok_c7 = r.sha(ex) != before and any("bash-scan" in l for l in cl) and any(" sync " in l and "files=1" in l for l in cl)
 
-    # C5: 3 SessionStart on a mirror with a pid-less old session
+    # C5: 3 SessionStart on a mirror with an old session that never ended
     old = HOME / ".ctx/sessions/notes-old"
     old.mkdir(parents=True)
     (old / "cwd").write_text(str(HOME / "notes"))
-    (old / "last.json").write_text(json.dumps(["Ancienne session sans pid."]))
+    (old / "last.json").write_text(json.dumps(["Ancienne session jamais terminée."]))
     os.utime(old, (1, 1))
     for f in old.iterdir():
         os.utime(f, (1, 1))
@@ -105,10 +105,10 @@ def main():
             {"session_id": f"start-{i}", "cwd": str(HOME / "notes")}), capture_output=True, text=True, env=r.env())
         r.wait_idle()
     cu = [l for l in log_lines(l0) if "catchup" in l]
-    say("\n== C5 three SessionStart with an old pid-less session in the mirror")
+    say("\n== C5 three SessionStart with an old session that never ended")
     say("\n".join(log_lines(l0)))
-    say(f"catchup lines: {len(cu)} (expected 1: caught up once, then closed)")
-    ok_c5 = len(cu) == 1 and (old / "closed").exists()
+    say(f"catchup lines: {len(cu)} (expected 1: caught up once, then marked synced)")
+    ok_c5 = len(cu) == 1 and (old / "synced.json").exists()
 
     res = dict(C2_bootstrap=ok_boot, C2_skip=ok_skip, C3=ok_c3, C5=ok_c5, C7=ok_c7)
     say("\n" + "\n".join(f"{k}: {'GREEN' if v else 'RED'}" for k, v in res.items()))

@@ -12,13 +12,10 @@ from pathlib import Path
 from typing import NamedTuple
 
 from .paths import (
-    EDIT_TOOLS, LAUNCHER, LIVE_WINDOW, MSG_CHARS, MSG_KEEP, PID_LIVE_MAX, atomic_write, log,
-    read_json, real, stamp, state_dir,
+    EDIT_TOOLS, IDLE_MAX, LAUNCHER, MSG_CHARS, MSG_KEEP, atomic_write, log, read_json, real,
+    state_dir,
 )
 from .filters import redact
-
-SHELLS = {"sh", "dash", "bash", "zsh", "env"}  # wrappers between the CLI and the hook process
-
 
 def session_dir_of(sid: str) -> Path:
     """The state directory of a session (its id made safe as a folder name)."""
@@ -27,15 +24,11 @@ def session_dir_of(sid: str) -> Path:
 
 
 def touch_session(event: dict, cwd: str | None = None) -> Path:
-    """Create the session dir on first sight and record the CLI pid; returns the dir.
-
-    The dir records the launch cwd; the pid is the client process that runs the hooks.
-    """
+    """Create the session dir on first sight (it records the launch cwd); returns the dir."""
     session_dir = session_dir_of(event.get("session_id", ""))
     session_dir.mkdir(parents=True, exist_ok=True)
     if not (session_dir / "cwd").exists():
         (session_dir / "cwd").write_text(str(real(cwd or event.get("cwd") or os.getcwd())))
-    record_pid(session_dir)
     return session_dir
 
 
@@ -116,92 +109,19 @@ def abandoned() -> list[tuple[str, str, str]]:
     return out
 
 
-def proc_start(pid: int) -> str:
-    """Start time (clock ticks since boot, /proc/<pid>/stat field 22) or '' when unavailable."""
-    try:
-        raw = Path(f"/proc/{pid}/stat").read_text()
-        # fields after "(comm)": state is index 0 -> starttime is 19
-        return raw[raw.rindex(")") + 2:].split()[19]
-    except (OSError, ValueError, IndexError):
-        return ""
-
-
-def cli_pid() -> int:
-    """The CLI that runs the hooks: our parent past the `sh -c` wrapper (dash does not exec, and
-    that short-lived sh made running sessions look dead, caught up before their Stop hook)."""
-    pid = os.getppid()
-    for _ in range(3):
-        try:
-            raw = Path(f"/proc/{pid}/stat").read_text()
-        except OSError:
-            return pid  # no /proc (macOS): the parent
-        if raw[raw.index("(") + 1:raw.rindex(")")] not in SHELLS:
-            return pid
-        pid = int(raw[raw.rindex(")") + 2:].split()[1])
-    return pid
-
-
-def record_pid(session_dir: Path) -> None:
-    """Remember the CLI process that launches the hooks (cli_pid).
-
-    Its start time is kept too, as a guard against pid reuse.
-    """
-    pid = cli_pid()
-    if pid <= 1:
-        return
-    line = f"{pid} {proc_start(pid)}".strip()
-    with contextlib.suppress(OSError):
-        if (session_dir / "pid").read_text().strip() == line:
-            return
-    atomic_write(session_dir / "pid", line + "\n")
-
-
-def pid_dead(session_dir: Path) -> bool:
-    """True only when the recorded CLI process is certainly gone.
-
-    Unknown or unreadable means False (the LIVE_WINDOW fallback decides).
-    """
-    try:
-        parts = (session_dir / "pid").read_text().split()
-        pid = int(parts[0])
-    except (OSError, ValueError, IndexError):
-        return False
-    if pid <= 1:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    except PermissionError:
-        pass  # exists, owned by someone else
-    except OSError:
-        return False
-    if len(parts) > 1 and parts[1]:
-        cur = proc_start(pid)
-        if cur and cur != parts[1]:
-            return True  # the pid was reused by another process
-    return False
-
-
 def sess_mtime(session_dir: Path) -> float:
     """Latest modification time of the session directory and its files."""
     return max([x.stat().st_mtime for x in [session_dir, *session_dir.iterdir()]] or [0])
 
 
 def session_live(session_dir: Path) -> bool:
-    """True while the session is still running.
-
-    Not ended and CLI process alive (idle at most PID_LIVE_MAX); without a pid file, active within
-    LIVE_WINDOW.
-    """
-    if (session_dir / "ended").exists() or pid_dead(session_dir):
+    """True while the session may still run: no `ended` marker, a hook in the last IDLE_MAX."""
+    if (session_dir / "ended").exists():
         return False
-    window = PID_LIVE_MAX if (session_dir / "pid").is_file() else LIVE_WINDOW
-    return time.time() - sess_mtime(session_dir) < window
+    return time.time() - sess_mtime(session_dir) < IDLE_MAX
 
 
-def catch_up(exclude: object = None, spawn: bool = True, skip_live: bool = False,
-             close: bool = True) -> list[str]:
+def catch_up(spawn: bool = True, skip_live: bool = False) -> list[str]:
     """Find sessions with unsynced work and sync them (detached); returns their ids.
 
     skip_live leaves running sessions alone. Finished sessions older than a week are removed.
@@ -219,15 +139,6 @@ def catch_up(exclude: object = None, spawn: bool = True, skip_live: bool = False
                     reports=len(pending.msgs), why="abandoned and older than 7 days")
             shutil.rmtree(session_dir, ignore_errors=True)
             continue
-        if (session_dir / "closed").exists() and not (session_dir / "pid").exists():
-            try:
-                closed_at = int((session_dir / "closed").read_text().split()[-1])
-            except (OSError, ValueError, IndexError):
-                closed_at = pending.nlines
-            if pending.nlines <= closed_at:
-                # pid-less session already caught up once; it comes back only if it touched more
-                # files
-                continue
         if not pending.files and (session_dir / "synced.json").exists():
             # only new reports on a session already marked synced: no file to route, no re-sync
             continue
@@ -235,8 +146,6 @@ def catch_up(exclude: object = None, spawn: bool = True, skip_live: bool = False
             continue
         if has_work and fails < 2:
             found.append(session_dir.name)
-            if close and not (session_dir / "pid").exists():
-                atomic_write(session_dir / "closed", f"{stamp()} {pending.nlines}\n")
             if spawn:
                 spawn_sync(session_dir.name)
     if found:

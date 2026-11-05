@@ -146,7 +146,7 @@ class Readme(unittest.TestCase):
                        f"never exceeds {ctx.paths.MAX_TOTAL} characters", f"at most {ctx.paths.MAX_INJECT} characters",
                        f"With {ctx.paths.FULL_ENTRIES} children or fewer", f"cut to {ctx.paths.SHORT_WIDTH} characters",
                        f"beyond {ctx.paths.MAX_ENTRIES}", f"last {ctx.paths.HISTORY_KEEP} versions",
-                       f"last {ctx.paths.LIVE_WINDOW} seconds"):
+                       f"after {ctx.paths.IDLE_MAX // 3600} hours without a hook"):
             self.assertIn(phrase, " ".join(REFERENCE.split()))
 
     def test_platform_limit_fcntl(self):
@@ -299,7 +299,7 @@ class Picture(unittest.TestCase):
 
 class ClaimsTable(unittest.TestCase):
     def test_every_test_named_in_the_table_exists(self):
-        files = sorted(HERE.glob("test_*.py")) + [HERE / "integration/run_readme.py"]
+        files = sorted(HERE.glob("test_*.py")) + sorted((MOD / "bench").glob("test_*.py")) + [HERE / "integration/run_readme.py"]
         sources = "".join(p.read_text() for p in files)
         names = set(re.findall(r"`((?:test_|step_)[a-z0-9_]+)`", CLAIMS))
         self.assertGreater(len(names), 15)
@@ -337,7 +337,7 @@ class Measured(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        sys.path.insert(0, str(HERE / "integration"))
+        sys.path.insert(0, str(MOD / "bench"))
         import run_benchmark
         cls.rb = run_benchmark
         cls.doc = (MOD / "docs/benchmark.md").read_text()

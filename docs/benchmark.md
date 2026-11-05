@@ -44,7 +44,7 @@ prompt-cache state more than the work done).
   static web site (`static-site`) and the git monorepo of a writing tool (`writing-project`). Three were nodes
   with a `CONTEXT.md` already shaped by earlier sessions; five were made nodes that night and their first
   `CONTEXT.md` was written by the real hooks after one read-only session ("fais le point").
-- **Tasks** (`tests/integration/benchmark-tasks.json`), in French, as typed when resuming work: a *resume* task
+- **Tasks** (`bench/benchmark-tasks.json`), in French, as typed when resuming work: a *resume* task
   ("where are we and what next, 3 concrete actions with the files"), the same in every folder, and a *specific*
   question whose answer is in the files (open `# Todo` cells, best submission and its scores, checks before a
   deploy, open known bugs, ...).
@@ -198,16 +198,16 @@ down on the other. Two folders: a description, not evidence that the effect hold
 ## Reproduce
 
 ```
-python3 tests/integration/run_benchmark.py --map MAP.json --out OUT --runs 5
-python3 tests/integration/run_benchmark.py --map MAP.json --out OUT --tag hidden --arms without --hide-context --phase sessions
-python3 tests/integration/run_benchmark.py --map MAP.json --out OUT --tag hidden --phase judge
-python3 tests/integration/run_benchmark.py --map MAP.json --out OUT --judge-model opus --judge-key scores_opus --judge-sets main:with,hidden:without --cost-cap 15 --phase judge
-python3 tests/integration/run_benchmark.py --map MAP.json --out OUT --phase report
+python3 bench/run_benchmark.py --map MAP.json --out OUT --runs 5
+python3 bench/run_benchmark.py --map MAP.json --out OUT --tag hidden --arms without --hide-context --phase sessions
+python3 bench/run_benchmark.py --map MAP.json --out OUT --tag hidden --phase judge
+python3 bench/run_benchmark.py --map MAP.json --out OUT --judge-model opus --judge-key scores_opus --judge-sets main:with,hidden:without --cost-cap 15 --phase judge
+python3 bench/run_benchmark.py --map MAP.json --out OUT --phase report
 ```
 
 `MAP.json` is your own, unpublished file: `{"redact": [words], "folders": {"<label>": {"path": "<your folder>",
 "reference": {"specific": "<answer written from the files>"}}}}`, one entry per label of
-`tests/integration/benchmark-tasks.json` (edit the tasks for your folders). Each phase is resumable. Raw runs,
+`bench/benchmark-tasks.json` (edit the tasks for your folders). Each phase is resumable. Raw runs,
 answers and judge output stay in `OUT/private/` (git-ignored); `--phase report` writes the published aggregates,
 `OUT/SUMMARY.md` and `docs/benchmark-results.json` (numbers per run keyed by generic labels, no text). Leave `CTX_HOME`
 unset to use your real hooks.

@@ -1,6 +1,6 @@
 """Publication safety: the published tree holds no secret-like literal and no personal path or name.
 
-Scans README, docs/, ctx.py, src/, install.sh and tests/ (generated evidence is not published) with
+Scans README, docs/, ctx.py, src/, install.sh, tests/ and bench/ (generated evidence is not published) with
 the same patterns as ctx's secret filter. This file builds its probe strings at runtime so that it
 does not itself contain what it looks for.
 """
@@ -13,7 +13,7 @@ MOD = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(MOD / "src"))
 import ctx.cli  # noqa: E402
 
-PUBLISHED = ["README.md", "docs", "ctx.py", "src", "install.sh", "tests"]
+PUBLISHED = ["README.md", "docs", "ctx.py", "src", "install.sh", "tests", "bench"]
 PROGRAM = [MOD / "ctx.py", *sorted((MOD / "src" / "ctx").glob("*.py"))]
 SKIP_SUFFIX = (".pyc",)
 

@@ -155,12 +155,12 @@ ctx.sync.sync_session("s1", lambda s, p: ({fake_output()!r}, {{"in": 1, "out": 1
         rc, out = self.run_ctx("doctor")
         self.assertIn("0 problem(s)", out)
         fk = Fake()
-        self.assertEqual(ctx.sync.sync_node(self.node, [], [], fk), "ok")  # the work queued by the cut session is drained, then the bubble runs
+        self.assertEqual(ctx.sync.sync_session("s1", fk), "ok")  # the cut session is still pending: replayed, then bubbled
         self.assertEqual(len(fk.calls), 1)
         self.assertIn("Chapitre 4 avance", self.text("courses"))
         self.assertIn("Chapitre 4 avance", self.text(""))
         self.ev("R2", f"SIGKILL inside bubble(): node summary written, parent (courses) not yet\nlocks free: True; "
-                      f"doctor: {out.strip().splitlines()[-1]}\nlater ctx.sync.sync_node drains the queued work and rebuilds courses and ~:\n{self.logtail(3)}")
+                      f"doctor: {out.strip().splitlines()[-1]}\nthe session, still pending, is replayed and rebuilds courses and ~:\n{self.logtail(3)}")
 
     def test_cut_between_session_end_hook_and_popen(self):
         from unittest import mock
@@ -179,17 +179,14 @@ ctx.sync.sync_session("s1", lambda s, p: ({fake_output()!r}, {{"in": 1, "out": 1
                       f"session s1 stays pending: ended={ (sd/'ended').exists() }\nnext SessionStart spawned: {spawned}\n{self.logtail(2)}")
 
     def test_sleep_and_wsl_stop(self):
-        me = os.getpid()
         self.session("A", "courses/ml-intro", [self.f1], "ex1")
         self.session("B", "courses/algebra", ["courses/algebra/tp/tp1.py"], "tp1")
         sa, sb = (self.home / ".ctx/sessions" / x for x in "AB")
-        for sd in (sa, sb):  # both launched by a live process (this one)
-            (sd / "pid").write_text(f"{me} {ctx.sessions.proc_start(me)}\n")
         self.assertTrue(ctx.sessions.session_live(sa))
         self.assertEqual(ctx.sessions.catch_up(spawn=False, skip_live=True), [])  # nothing lost, nothing stolen while live
-        # computer sleeps 13 h (past the 12 h a live pid protects): A's timestamps are shifted, B kept working
+        # computer sleeps (or WSL stops) past IDLE_MAX without a session end: A's timestamps are shifted, B kept working
         for x in [sa, *sa.iterdir()]:
-            os.utime(x, (time.time() - 13 * 3600,) * 2)
+            os.utime(x, (time.time() - ctx.paths.IDLE_MAX - 3600,) * 2)
         self.assertFalse(ctx.sessions.session_live(sa))
         found = ctx.sessions.catch_up(spawn=False, skip_live=True)
         self.assertEqual(found, ["A"])
@@ -208,25 +205,8 @@ ctx.sync.sync_session("s1", lambda s, p: ({fake_output()!r}, {{"in": 1, "out": 1
         self.assertIn("ex2.py", fk2.calls[0][1])
         self.assertNotIn("ex1.py", fk2.calls[0][1])
         self.assertEqual(ctx.sync.sync_session("A", fk2), "nothing")
-        # WSL stopped: every process was killed, the recorded CLI pid is gone -> not live at once, even with fresh timestamps
-        dead = subprocess.Popen(["sleep", "300"])
-        pid, started = dead.pid, ctx.sessions.proc_start(dead.pid)
-        self.session("C", "courses/challenge", ["courses/challenge/src/train.py"], "train")
-        sc = self.home / ".ctx/sessions/C"
-        (sc / "pid").write_text(f"{pid} {started}\n")
-        self.assertTrue(ctx.sessions.session_live(sc))
-        dead.kill()
-        dead.wait()
-        self.assertFalse(ctx.sessions.session_live(sc))
-        self.assertIn("C", ctx.sessions.catch_up(spawn=False, skip_live=True))
-        # pid reused by an unrelated process after the reboot: start time differs -> still dead, never mistaken for live
-        if sys.platform != "linux":  # the start time comes from /proc
-            self.skipTest(LINUX_ONLY + " (pid reuse check; the rest of this test ran)")
-        (sc / "pid").write_text(f"{me} 1\n")
-        self.assertTrue(ctx.sessions.pid_dead(sc))
-        self.ev("R10", "13 h sleep (timestamps shifted): A caught up once, B (live) untouched, no cross-attribution, "
-                       "post-resume edit synced alone\nWSL stop (CLI pid killed): C not live immediately, caught up; "
-                       f"reused pid (start time mismatch) -> dead\n{self.logtail(4)}")
+        self.ev("R10", "sleep past IDLE_MAX (timestamps shifted): A caught up once, B (live) untouched, "
+                       f"no cross-attribution, post-resume edit synced alone\n{self.logtail(4)}")
 
 
 class TestModelFailuresAndTimeouts(Robust):
@@ -286,10 +266,9 @@ class TestModelFailuresAndTimeouts(Robust):
 
     @unittest.skipUnless(sys.platform == "linux", LINUX_ONLY)
     def test_timeout_kills_the_whole_process_group(self):
-        for mod in (ctx.rewriter, ctx.sync):  # the model call and the per-node deadline
-            patcher = mock.patch.object(mod, "MODEL_TIMEOUT", 2)
-            patcher.start()
-            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(ctx.rewriter, "MODEL_TIMEOUT", 2)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.fake_claude(f"(sleep 300 & echo $! > {self.work}/grandchild.pid; wait) & echo $! > {self.work}/child.pid\n"
                          f"echo $$ > {self.work}/claude.pid\nwait\n")
         self.with_path(f"{self.bin}:{os.environ['PATH']}")
@@ -301,25 +280,6 @@ class TestModelFailuresAndTimeouts(Robust):
         self.assertIn("model timeout", ctx.doc.status_line(self.node))
         self.ev("R5", f"MODEL_TIMEOUT=2 with a fake claude holding a child and a grandchild (sleep 300)\n"
                       f"returned after {time.time() - t0:.1f}s; pids {pids} alive: {[self.alive(p) for p in pids]}\n{self.logtail(1)}")
-
-    @unittest.skipUnless(sys.platform == "linux", LINUX_ONLY)
-    def test_sync_deadline_also_kills_the_group(self):
-        p = mock.patch.object(ctx.sync, "sync_deadline", lambda: 2)
-        p.start()
-        self.addCleanup(p.stop)
-        self.fake_claude(f"echo $$ > {self.work}/claude.pid\n(sleep 300 & echo $! > {self.work}/grandchild.pid; wait)\n")
-        self.with_path(f"{self.bin}:{os.environ['PATH']}")
-        self.assertEqual(self.run_fails("s1"), "fail")  # SIGALRM deadline fires inside communicate()
-        pids = [int((self.work / f).read_text()) for f in ("claude.pid", "grandchild.pid")]
-        self.assertTrue(self.wait(lambda: not any(self.alive(p) for p in pids), 5), pids)
-        self.assertRegex(self.log_text(), r"sync-fail .*error=Alarm: sync deadline")
-        self.assertIn("sync deadline", ctx.doc.status_line(self.node))
-        self.assertEqual(self.run_fails("s1b"), "fail")
-        self.assertEqual(self.run_fails("s1"), "fail")  # second failure of s1: abandoned, same as R4
-        self.assertIn("s1", [x[0] for x in ctx.sessions.abandoned()])
-        self.ev("R5", f"sync_deadline=2 (SIGALRM deadline) while claude runs: pids {pids} alive: {[self.alive(p) for p in pids]}\n"
-                      f"same treatment as R4: abandoned={[x[0] for x in ctx.sessions.abandoned()]}\n{self.logtail(3)}")
-
 
 class TestExternalEditsAndMovedNodes(Robust):
     def test_external_write_is_the_base_and_conflict_files_are_ignored(self):

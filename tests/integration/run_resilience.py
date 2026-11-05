@@ -226,23 +226,21 @@ def t8(model):
     d = ctxmod.doc.parse(txt)
     lines = r.ctxlog().splitlines()[l0:]
     syncs = [ln for ln in lines if " sync " in ln and "algebra" in ln]
-    queued = [ln for ln in lines if "sync-queued" in ln]
+    waited = [ln for ln in lines if "sync-busy" in ln]  # a second syncer waits on the node lock
     leftovers = subprocess.run(["find", str(HOME), "(", "-name", "*.tmp", "-o", "-name", "*.lock", ")",
                                 "-not", "-path", "*/.git/*", "-not", "-name", ".log.lock"], capture_output=True, text=True).stdout.strip()  # .log.lock: permanent rotation lock
-    pend = HOME / ".ctx/pending"
-    pending_files = [str(p) for p in pend.rglob("*.json")] if pend.exists() else []
     low = txt.lower()
     both = (("convolu" in low or "chapitre 5" in low or "notes" in low) and ("tp1" in low or "batchnorm" in low))
     valid = ctxmod.doc.valid_shape(d) and len(txt) <= ctxmod.paths.MAX_TOTAL  # Decisions is optional (absent = empty)
     r.write("T8.evidence.txt",
             f"notes.md:\n{(node / 'notes.md').read_text()}\ntp1.py:\n{(node / 'tp/tp1.py').read_text()}\n"
             f"--- algebra/CONTEXT.md\n{txt}\nvalid shape + 4 sections + <=4000: {valid}\n"
-            f"mentions both changes: {both}\nsync lines for node: {len(syncs)} ; 'sync-queued' (second syncer deferred): {len(queued)}\n"
-            f"residual *.tmp / *.lock files: [{leftovers}]\nresidual pending queue items: {pending_files}\n")
+            f"mentions both changes: {both}\nsync lines for node: {len(syncs)} ; 'sync-busy' (lock wait ran out): {len(waited)}\n"
+            f"residual *.tmp / *.lock files: [{leftovers}]\n")
     r.write("T8.log", "\n".join(lines) + "\n")
     changed = "convolu" in (node / "notes.md").read_text().lower() and "batchnorm" in (node / "tp/tp1.py").read_text()
-    r.record(n, valid and both and changed and not leftovers and not pending_files, "T8.evidence.txt",
-             f"valid={valid} both={both} edits={changed} syncs={len(syncs)} queued={len(queued)} leftovers=[{leftovers}]")
+    r.record(n, valid and both and changed and not leftovers and not waited, "T8.evidence.txt",
+             f"valid={valid} both={both} edits={changed} syncs={len(syncs)} busy={len(waited)} leftovers=[{leftovers}]")
 
 
 def t9(model):
@@ -277,7 +275,11 @@ def t9(model):
     synced_before = [ln for ln in lines_after_kill if " sync " in ln]
     h_after_kill = r.sha(node / "CONTEXT.md")
     touched = (HOME / f".ctx/sessions/{sid}/touched").read_text() if sid else ""
-    # the pid recorded by the hooks lets the very next SessionStart see the killed CLI is gone: no aging needed
+    # no end hook after kill -9: the session counts as running until IDLE_MAX without a hook; age it past that
+    if sid:
+        old = time.time() - ctxmod.paths.IDLE_MAX - 60
+        for f in [HOME / f".ctx/sessions/{sid}", *(HOME / f".ctx/sessions/{sid}").iterdir()]:
+            os.utime(f, (old, old))
     ans, j, _ = sess("T9next", node, "Reply with the single word 'ok'. Do not use any tool.", model, tools="")
     r.wait_idle()
     ctxt = r.grab("courses/ml-intro/CONTEXT.md")

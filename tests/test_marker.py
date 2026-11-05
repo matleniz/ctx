@@ -1,4 +1,4 @@
-"""Marker (`ctx: 1`) = only ctx-created CONTEXT.md are nodes; injection allow-list; sync deadline from the rewriter timeout."""
+"""Marker (`ctx: 1`) = only ctx-created CONTEXT.md are nodes; injection allow-list."""
 import sys
 from pathlib import Path
 
@@ -79,8 +79,6 @@ class Marker(test_ctx.Base):
         self.assertIn("fine", txt)
         self.assertIn("## Status", txt)
 
-    def test_sync_deadline_covers_two_model_calls(self):
-        self.assertEqual(ctx.sync.sync_deadline(), 2 * ctx.paths.MODEL_TIMEOUT + ctx.paths.SYNC_MARGIN)  # first call + one retry + margin
 
 
 class Absorb(test_ctx.Base):
