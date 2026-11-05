@@ -9,6 +9,10 @@ Real use showed work under containers getting lost and containers injecting nois
 - A node reports to the closest node above it, across plain folders (`tools/cli/` in its container's Subfolders).
 - Computed summaries: children most recently updated first, each cut on a word boundary, then `also: <names>`
   (was: children in name order, cut mid-word at 300 characters).
+- The agent writes its own state: a project node's injection asks the agent to update Status, Next and the
+  summary of its `CONTEXT.md` before finishing; when the session did, the sync adopts it without a model call
+  (`writer=agent`), through the same validator. The model rewrite stays as the fallback.
+- Next names the next unfinished work: re-check lines ("run the tests to confirm") go after task lines.
 - Injection drops empty and placeholder sections and computed summaries; the Subfolders section is no longer
   injected twice.
 

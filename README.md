@@ -8,7 +8,7 @@
 </picture>
 
 Per-folder memory for coding agents. Each folder you choose holds a `CONTEXT.md`: the agent receives it when a
-session starts, and it is rewritten afterwards from the files that session touched. Such a folder is a *node*: its
+session starts and updates it before finishing (or one model call rewrites it afterwards). Such a folder is a *node*: its
 `CONTEXT.md` carries a `ctx: 1` header line, written by `ctx init`. A folder's one-line summary is
 copied into its parent's `CONTEXT.md`, and a session also gets one `parent <name>: <summary>` line of its node's parent (never siblings). Python 3.10+ standard library, no dependency.
 

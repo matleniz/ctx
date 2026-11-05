@@ -228,6 +228,13 @@ def set_status(node: str | Path, ok: bool, err: str = "", **extra: object) -> No
     atomic_write(state_files / f"{path_key(node)}.json", json.dumps(s))
 
 
+def state_hash(text: str) -> str:
+    """Hash of the Status and Next sections only: a change there is new state, not a Notes edit."""
+    d = parse(text)
+    return text_hash(d.sections.get(SEC_STATUS, "").strip() + "\0"
+                     + d.sections.get(SEC_NEXT, "").strip())
+
+
 def note_hash(node: str | Path, text: str) -> None:
     """Remember the hash of the CONTEXT.md ctx last wrote.
 
@@ -235,6 +242,8 @@ def note_hash(node: str | Path, text: str) -> None:
     """
     s = get_status(node) or {"path": str(real(node))}  # no sync result yet: none is invented
     s["hash"] = text_hash(text)
+    s["state_hash"] = state_hash(text)
+    s["summary_written"] = parse(text).summary
     (state_dir() / "state").mkdir(parents=True, exist_ok=True)
     atomic_write(state_dir() / "state" / f"{path_key(node)}.json", json.dumps(s))
 

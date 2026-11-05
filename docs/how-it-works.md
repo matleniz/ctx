@@ -67,6 +67,14 @@ output check is that a rewrite copying a subfolder's own summary line is rejecte
 
 ## Rewriter
 
+The agent writes first. The injection of a project node (not a container) ends with ctx's request to update the
+node's Status, Next and `summary:` line before finishing, and to state decisions as `decision:` lines in the final
+message. When the session edited that `CONTEXT.md` and changed Status or Next (compared with what ctx last wrote),
+the sync adopts it with no model call (log `sync … writer=agent`): same validator as a model answer, decisions from
+the reports merged into Decisions, Notes kept, a summary the agent left unchanged rebuilt from the first Status and
+Next lines. Otherwise, or when the agent's text fails the validator (`agent-state-rejected`), the model rewrites.
+An edit made outside the session (another machine, an editor) is only the base of the model rewrite.
+
 Claude is the only rewriter (`REWRITERS` in `src/ctx/rewriter.py` has one row, `cli_rewriter` is the single call). Content rules: the prompt asks for state with file paths, `decision:` lines and a concrete next step; the
 validator rejects "structure" lines (contains / list of / tree / N files / three file names without a state verb)
 and retries once like any other violation. Why Claude: the rewrite

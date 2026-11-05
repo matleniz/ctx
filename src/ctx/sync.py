@@ -14,16 +14,16 @@ from .paths import (
     MAX_SUMMARY, MAX_TOTAL, MODEL_TIMEOUT, MSG_KEEP, SCAN_MAX, SCAN_SKIP_DIRS, SCAN_SKIP_FILES,
     SCAN_SLACK, SEC_DECISIONS, SEC_NEXT, SEC_NOTES, SEC_STATUS, SEC_SUBS, SESSION_BUSY,
     SESSION_MISSING, SESSION_NOTHING, STATUS_FAIL, SYNC_FAIL, SYNC_MARGIN, SYNC_NONE, SYNC_OK,
-    SYNC_QUEUED, atomic_write, deadline, dirlock, log, path_key, read_json, real, root,
+    SYNC_QUEUED, atomic_write, clip, deadline, dirlock, log, path_key, read_json, real, root,
     set_session, stamp, state_dir, text_hash,
 )
 from .filters import redact
 from .doc import Doc, get_status, is_auto, merge_decisions, numbered, parse, read_doc, render
-from .doc import set_status, write_doc
+from .doc import set_status, state_hash, write_doc
 from .tree import accepts, auto_node, bubble, build_subs, has_ctx, is_ignored, nearest_node
 from .sessions import Pending, session_dir_of, session_pending
 from .rewriter import (
-    LIGHT_PROMPT, ModelOutput, SYSTEM_PROMPT, build_prompt, cli_rewriter, git_diffstat,
+    DECISION_RE, LIGHT_PROMPT, ModelOutput, SYSTEM_PROMPT, build_prompt, cli_rewriter, git_diffstat,
     light_worthy, parse_model_output,
 )
 
@@ -96,6 +96,8 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
     """Rewrite the node (light: reports in, Next/Decisions out); caller holds the lock. SYNC_*."""
     started = time.time()
     p = Path(node) / "CONTEXT.md"
+    own = [f for f in files if os.path.basename(f) == "CONTEXT.md"]
+    files = [f for f in files if f not in own]
     try:
         old_text = p.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -103,14 +105,19 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
     old = parse(old_text)
     check_external_edit(node, old_text)
     diffstat = "" if light else git_diffstat(node)
-    if not files and not msgs and not diffstat:
+    if not files and not msgs and not diffstat and not own:
         bubble(node)
         return SYNC_NONE
     prompt, redactions = rewrite_prompt(node, old, files, msgs, diffstat, light)
     subs = build_subs(node)
     trims = []
+    writer = "model"
     try:
-        output, info = ask_model(node, rewriter, prompt, subs, trims, light)
+        output = adopt_agent_state(node, old, old_text, msgs, subs, trims) if own else None
+        if output is not None:
+            writer, info = "agent", {"in": 0, "out": 0, "secs": 0}
+        else:
+            output, info = ask_model(node, rewriter, prompt, subs, trims, light)
         changed = apply_rewrite(node, old, output, trims, light)
         # worked: time of the last sync with touched files; False: read-only bootstraps only
         prior = get_status(node) or {}
@@ -122,8 +129,8 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
         log("sync-fail", node=node, error=f"{type(e).__name__}: {e}")
         return SYNC_FAIL
     log("sync-light" if light else "sync", node=node, files=len(files), changed=changed,
-        tokens_in=info.get("in", 0), tokens_out=info.get("out", 0), model_secs=info.get("secs", 0),
-        total_secs=round(time.time() - started, 1))
+        writer=writer, tokens_in=info.get("in", 0), tokens_out=info.get("out", 0),
+        model_secs=info.get("secs", 0), total_secs=round(time.time() - started, 1))
     if output.filtered + redactions:
         log("filtered", node=node, count=output.filtered + redactions,
             why="secrets/instruction-shaped lines")
@@ -132,6 +139,36 @@ def _rewrite_locked(node, files, msgs, rewriter, light=False):
     except Exception as e:  # the node is written: a parent refresh error must not redo the call
         log("bubble-error", node=node, error=f"{type(e).__name__}: {e}")
     return SYNC_OK
+
+
+def adopt_agent_state(node: Path, old: Doc, old_text: str, msgs: list[str], subs: str,
+                      trims: list[str]) -> ModelOutput | None:
+    """The state the agent of the session wrote into CONTEXT.md, validated; None: call the model.
+
+    Called when the session edited the node's CONTEXT.md. Adopted when Status or Next differ from
+    what ctx last wrote (state_hash) and the file passes
+    the same checks as a model answer. `decision:` lines of the reports go to Decisions. A summary
+    the agent left unchanged is rebuilt from the first Status and Next lines.
+    """
+    known = (get_status(node) or {}).get("state_hash")
+    if not known or known == state_hash(old_text):
+        return None
+    status = old.sections.get(SEC_STATUS, "").strip()
+    nxt = old.sections.get(SEC_NEXT, "").strip()
+    summary = old.summary
+    prior = (get_status(node) or {}).get("summary_written")
+    if is_auto(old) or summary == prior:
+        first = lambda body: body.split("\n")[0].lstrip("-* ").strip()  # noqa: E731
+        summary = clip(f"{first(status)}; next: {first(nxt)}", MAX_SUMMARY)
+    decisions = "\n".join(x.strip() for m in msgs for x in DECISION_RE.findall(m))
+    text = f"SUMMARY: {summary}\n## Status\n{status}\n## Next\n{nxt}\n{decisions}\n"
+    try:
+        out = parse_model_output(text, subs, trims, figures=False)
+    except ValueError as e:
+        trims.clear()
+        log("agent-state-rejected", node=node, why=e)
+        return None
+    return out
 
 
 def check_external_edit(node: Path, old_text: str) -> None:
@@ -265,9 +302,11 @@ def route(files: list[str], launch_cwd: str) -> dict[Path, list[str]]:
     """
     out, unrouted = {}, collections.Counter()
     for f in files:
-        if os.path.basename(f) == "CONTEXT.md":
-            continue
         d = real(os.path.dirname(f))
+        if os.path.basename(f) == "CONTEXT.md":
+            if has_ctx(d):  # the agent wrote the node's state itself (adopt_agent_state)
+                out.setdefault(d, []).append(f)
+            continue
         n = nearest_node(d)
         if n is None or not accepts(n, d):
             n = None if is_ignored(d) else auto_node(d)

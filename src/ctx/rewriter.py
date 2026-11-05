@@ -348,7 +348,8 @@ def check_summary(summary: str, trims: list[str] | None) -> str:
 
 
 # a Next line that only re-checks done work ("run the tests to confirm ...")
-RECHECK_RE = re.compile(r"\b(confirm|verify|re-?check|vérifier|confirmer)\b", re.I)
+RECHECK_RE = re.compile(r"\b(confirm|verify|re-?check|vérifier|confirmer)\b"
+                        r"|\b(run|lancer)\b.*\b(tests?|unittest|pytest)\b", re.I)
 
 
 def checks_last(body: str) -> str:
