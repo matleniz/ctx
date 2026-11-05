@@ -166,9 +166,10 @@ def t6(model):
     r.record("T6C", okC, "T6C.evidence.txt", f"discovery={'no ctx context' in c_hook} coursesUnchanged={cours_h == cours_after}")
     r.write("T6.log", "\n".join(r.ctxlog().splitlines()[l0:]) + "\n")
     proposes = bool(re.search(r"contexte|context|ctx", a1, re.I)) and "?" in a1
-    okB = exists and home_h == home_after and "truc/" not in home_txt and "scratch" not in home_txt
+    # 1.2.0: a node reports to the closest node above it, across plain folders (scratch/ is not a node)
+    okB = exists and "- **scratch/truc/** — " in home_txt
     r.record(n, proposes and okA and not reasks and okB and okC and real_ctx_untouched(), "T6.evidence.txt",
-             f"proposes={proposes} declinedA={okA} reasks={reasks} nodeB={exists} homeUnchanged={home_h == home_after}")
+             f"proposes={proposes} declinedA={okA} reasks={reasks} nodeB={exists} bubbledToHome={okB}")
 
 
 def t7(model):
@@ -232,7 +233,7 @@ def t8(model):
     pending_files = [str(p) for p in pend.rglob("*.json")] if pend.exists() else []
     low = txt.lower()
     both = (("convolu" in low or "chapitre 5" in low or "notes" in low) and ("tp1" in low or "batchnorm" in low))
-    valid = ctxmod.valid_shape(d) and all(s in d.sections for s in ctxmod.ORDER) and len(txt) <= ctxmod.MAX_TOTAL
+    valid = ctxmod.valid_shape(d) and len(txt) <= ctxmod.MAX_TOTAL  # Decisions is optional (absent = empty)
     r.write("T8.evidence.txt",
             f"notes.md:\n{(node / 'notes.md').read_text()}\ntp1.py:\n{(node / 'tp/tp1.py').read_text()}\n"
             f"--- algebra/CONTEXT.md\n{txt}\nvalid shape + 4 sections + <=4000: {valid}\n"

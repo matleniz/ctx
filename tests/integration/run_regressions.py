@@ -73,7 +73,7 @@ def main():
     say(tree)
     cours_summ = next((l for l in r.grab("courses/CONTEXT.md").splitlines() if l.startswith("summary:")), "")
     say(f"courses summary: {cours_summ}")
-    ok_c3 = "ml-intro : " in cours_summ
+    ok_c3 = "ml-intro: " in cours_summ  # 1.2.0 format: <child>: <summary> · ... · also: <names>
 
     # C7: session that edits through Bash only
     l0 = len(r.ctxlog().splitlines())
