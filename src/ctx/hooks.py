@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 
 from .paths import (
-    Alarm, HOOK_DEADLINE, INJECT_DISCOVER, INJECT_NODE, INJECT_NONE, MAX_DECISIONS_CHARS,
-    MAX_INJECT, MAX_NOTES, ORDER, SEC_DECISIONS, SEC_NEXT, SEC_NOTES, SEC_STATUS, clean, clip,
-    deadline, log, real, self_cmd, stamp, under,
+    Alarm, EMPTY_BODIES, HOOK_DEADLINE, INJECT_DISCOVER, INJECT_NODE, INJECT_NONE,
+    MAX_DECISIONS_CHARS, MAX_INJECT, MAX_NOTES, ORDER, SEC_DECISIONS, SEC_NEXT, SEC_NOTES,
+    SEC_STATUS, clean, clip, deadline, log, real, self_cmd, stamp, under,
 )
 from .filters import filter_lines, instruction_shaped, redact
 from .doc import Doc, get_status, is_auto, read_doc, render, status_line
@@ -134,8 +134,11 @@ def injected_doc(node: Path) -> Doc:
         log("filtered", node=node, count=nfilt, why="injection-time filter on CONTEXT.md")
     # allow-list: only the summary and the known sections (ORDER) reach the model; any other
     # header key or section is dropped
-    d.meta = {"summary": summ}
-    d.sections = {k: v for k, v in sections.items() if k in ORDER}
+    # a computed summary only repeats the Subfolders lines; empty or placeholder sections say
+    # nothing: neither reaches the model
+    d.meta = {} if is_auto(d) else {"summary": summ}
+    d.sections = {k: v for k, v in sections.items()
+                  if k in ORDER and v.strip() not in EMPTY_BODIES}
     return d
 
 

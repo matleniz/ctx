@@ -6,12 +6,15 @@ from pathlib import Path
 from typing import Iterator
 
 from .paths import (
-    BUBBLE_LOCK_WAIT, BUILTIN_IGNORE, FULL_ENTRIES, MARKER, MAX_ENTRIES, MAX_SUBS, MAX_SUMMARY,
+    BUBBLE_LOCK_WAIT, BUILTIN_IGNORE, CHILD_DEPTH, ENTRY_SUMMARY, FULL_ENTRIES, MARKER,
+    MAX_ENTRIES, MAX_SUBS, MAX_SUMMARY,
     PLACEHOLDERS, REQUIRED, SEC_DECISIONS, SEC_SUBS, SHORT_WIDTH, SUBS_PREFIX, atomic_write,
-    clip, dirlock, log, real, root, self_cmd, state_dir, under,
+    clip, dirlock, log, real, root, self_cmd, stamp, state_dir, under,
 )
 from .filters import instruction_shaped
-from .doc import active_decisions, is_auto, parse, read_doc, write_doc
+from .doc import (
+    active_decisions, is_auto, new_doc, note_hash, parse, read_doc, render, write_doc,
+)
 
 
 def ignore_patterns() -> list[str]:
@@ -134,26 +137,55 @@ def accepts(node: Path | None, d: str | Path) -> bool:
 
 
 def parent_node(node: str | Path) -> Path | None:
-    """The parent folder when it is a node (never above the root), else None."""
+    """The closest ancestor that is a node (never above the root), else None.
+
+    Folders in between that are not nodes are skipped, so a node deep under a container still
+    reports to it.
+    """
     node = real(node)
-    if node == root() or not under(node, root()):
+    r = root()
+    if node == r or not under(node, r):
         return None
-    p = node.parent
-    return p if has_ctx(p) and not is_ignored(p) else None
+    for p in node.parents:
+        if not under(p, r):
+            return None
+        if has_ctx(p) and not is_ignored(p):
+            return p
+        if p == r:
+            return None
+    return None
 
 
 def child_nodes(node: str | Path) -> list[Path]:
-    """Direct subfolders that are nodes, in name order."""
+    """The closest nodes below `node`, in path order.
+
+    Walks at most CHILD_DEPTH levels down, stops at each node found, skips hidden, ignored and
+    symlinked folders.
+    """
     out = []
-    try:
-        names = sorted(os.listdir(node))
-    except OSError:
-        return out
-    for n in names:
-        p = Path(node) / n
-        if p.is_dir() and not p.is_symlink() and has_ctx(p) and not is_ignored(p):
-            out.append(p)
+
+    def walk(d, depth):
+        """Collect the closest nodes under `d`."""
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            return
+        for n in names:
+            p = Path(d) / n
+            if n.startswith(".") or p.is_symlink() or not p.is_dir() or is_ignored(p):
+                continue
+            if has_ctx(p):
+                out.append(p)
+            elif depth < CHILD_DEPTH:
+                walk(p, depth + 1)
+
+    walk(Path(node), 1)
     return out
+
+
+def child_label(node: str | Path, child: Path) -> str:
+    """The child's path relative to `node` (`intro-ml`, `ctx/code`)."""
+    return child.relative_to(node).as_posix()
 
 
 def declined_list() -> list[Path]:
@@ -186,21 +218,49 @@ def remove_declined(d: str | Path) -> None:
 
 
 def computed_summary(node: str | Path) -> str:
-    """Deterministic summary built from the children's summaries.
+    """Deterministic summary of a container, built from its children, most recently updated first.
 
-    Each non-private child's summary prefixed '<child> : ', joined with '; ', cut at MAX_SUMMARY.
+    `ml-intro: <summary> · rl: <summary> · also: deep-learning, algebra`: children with a summary
+    are quoted (each cut at ENTRY_SUMMARY on a word boundary) while they fit in MAX_SUMMARY, the
+    rest are only named.
     """
-    parts = []
+    kids = []
     for k in child_nodes(node):
         try:
             child_doc = read_doc(k)
         except OSError:
             continue
-        s = " ".join(child_doc.summary.split())
-        if child_doc.private or not s or s in PLACEHOLDERS or instruction_shaped(s):
+        if child_doc.private:
             continue
-        parts.append(f"{k.name} : {s}")
-    return clip("; ".join(parts), MAX_SUMMARY) if parts else ""
+        s = " ".join(child_doc.summary.split())
+        ok = bool(s) and s not in PLACEHOLDERS and not instruction_shaped(s)
+        kids.append((child_doc.meta.get("updated", ""), child_label(node, k), s if ok else ""))
+    if not any(text for _u, _n, text in kids):
+        return ""
+    kids.sort(key=lambda kid: kid[0], reverse=True)  # stable: name order among equal dates
+    quoted, named, full = [], [], False
+    for _u, name, text in kids:
+        entry = f"{name}: {word_clip(text, ENTRY_SUMMARY)}" if text else ""
+        full = full or bool(entry) and len(" · ".join(quoted + [entry])) > MAX_SUMMARY - 30
+        if entry and not full:
+            quoted.append(entry)
+        else:
+            named.append(name)
+    if named:
+        room = MAX_SUMMARY - len(" · ".join(quoted)) - 3
+        quoted.append(word_clip("also: " + ", ".join(named), room))
+    return " · ".join(quoted)
+
+
+def word_clip(s: str, n: int) -> str:
+    """`s` on one line, cut at the last word boundary before `n` characters, with an ellipsis."""
+    s = " ".join(s.split())
+    if len(s) <= n:
+        return s
+    cut = s[: n - 1]
+    if " " in cut:
+        cut = cut[: cut.rindex(" ")]
+    return cut.rstrip(" ,;:") + "…"
 
 
 def build_subs(node: str | Path) -> str:
@@ -219,7 +279,7 @@ def build_subs(node: str | Path) -> str:
             if instruction_shaped(s):
                 s = "(summary filtered)"
         n = 0 if child_doc.private else active_decisions(child_doc.sections.get(SEC_DECISIONS, ""))
-        items.append((k.name, s, f" · decisions: {n}" if n else ""))
+        items.append((child_label(node, k), s, f" · decisions: {n}" if n else ""))
     if not items:
         return ""
 
@@ -333,3 +393,53 @@ def git_exclude(d: str | Path) -> bool:
         sep = "" if cur.endswith("\n") or not cur else "\n"
         atomic_write(exclude_file, cur + sep + "CONTEXT.md\n")
     return True
+
+
+def git_root(d: str | Path) -> Path | None:
+    """The top folder of the git repository or worktree holding `d` (a `.git` entry), or None."""
+    d = real(d)
+    for p in [d, *d.parents]:
+        if (p / ".git").exists():
+            return p
+    return None
+
+
+def create_node(d: Path, absorb: bool = True) -> str:
+    """Create a node at `d`: '' on success, else the reason it was not created.
+
+    The caller has checked that `d` is a directory under the root and not ignored.
+    """
+    with dirlock(d) as got:
+        if not got:
+            return "busy"
+        if has_ctx(d):
+            return "exists"
+        if is_foreign(d):
+            return "foreign"
+        doc = new_doc(absorb=absorb)
+        doc.sections[SEC_SUBS] = build_subs(d)
+        atomic_write(d / "CONTEXT.md", render(doc, updated=stamp()))
+        note_hash(d, (d / "CONTEXT.md").read_text())
+    excluded = git_exclude(d)
+    remove_declined(d)
+    log("init", node=d, git_excluded=excluded)
+    bubble(d)
+    return ""
+
+
+def auto_node(d: str | Path) -> Path | None:
+    """The node for work in `d` when no node takes it: the git repository root, created if needed.
+
+    None when `d` is not in a repository under the root, or the repository root is ignored,
+    declined or holds a foreign CONTEXT.md.
+    """
+    top = git_root(d)
+    r = root()
+    if top is None or top == r or not under(top, r) or is_ignored(top) or is_declined(top):
+        return None
+    if has_ctx(top):
+        return top
+    if create_node(top) == "":
+        log("auto-init", node=top, why="git repository with no node taking its files")
+        return top
+    return None

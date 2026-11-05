@@ -6,15 +6,15 @@ import sys
 from pathlib import Path
 
 from .paths import (
-    MARKER, PURGE_DAYS, SEC_SUBS, __version__, atomic_write, base, clean, dirlock, human_cmd, log,
-    real, root, stamp, under,
+    MARKER, PURGE_DAYS, __version__, atomic_write, base, clean, dirlock, human_cmd, log, real,
+    root, under,
 )
 from .doc import (
-    _log_matches, history_dir, new_doc, note_hash, orphans, parse_since, read_log, render,
+    _log_matches, history_dir, note_hash, orphans, parse_since, read_log,
 )
 from .tree import (
-    add_declined, all_nodes, bubble, build_subs, git_exclude, has_ctx, is_foreign, is_ignored,
-    refresh_subs, remove_declined, show_tree,
+    add_declined, all_nodes, bubble, create_node, git_info_dir, has_ctx, is_ignored, refresh_subs,
+    show_tree,
 )
 from .sessions import catch_up
 from .rewriter import cli_rewriter
@@ -42,25 +42,18 @@ def cmd_init(args: argparse.Namespace) -> int:
     if has_ctx(d):
         print(f"ctx: {d} already has a CONTEXT.md")
         return 0
-    with dirlock(d) as got:
-        if not got:
-            print(f"ctx: {d} is busy", file=sys.stderr)
-            return 1
-        if has_ctx(d):  # created while we waited for the lock
-            print(f"ctx: {d} already has a CONTEXT.md")
-            return 0
-        if is_foreign(d):
-            print(f"ctx: {d}/CONTEXT.md is not a ctx file (no `{MARKER}: 1` header): "
-                  "left untouched; move or rename it to create a node here", file=sys.stderr)
-            return 1
-        doc = new_doc(absorb=not args.no_absorb)
-        doc.sections[SEC_SUBS] = build_subs(d)
-        atomic_write(d / "CONTEXT.md", render(doc, updated=stamp()))
-        note_hash(d, (d / "CONTEXT.md").read_text())
-    excluded = git_exclude(d)
-    remove_declined(d)
-    log("init", node=d, git_excluded=excluded)
-    bubble(d)
+    why = create_node(d, absorb=not args.no_absorb)
+    if why == "busy":
+        print(f"ctx: {d} is busy", file=sys.stderr)
+        return 1
+    if why == "exists":  # created while we waited for the lock
+        print(f"ctx: {d} already has a CONTEXT.md")
+        return 0
+    if why == "foreign":
+        print(f"ctx: {d}/CONTEXT.md is not a ctx file (no `{MARKER}: 1` header): "
+              "left untouched; move or rename it to create a node here", file=sys.stderr)
+        return 1
+    excluded = git_info_dir(d) is not None
     print(f"ctx: node created at {d}" + (" (excluded from git)" if excluded else ""))
     return 0
 

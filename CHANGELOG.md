@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.0 - 2026-11-05
+
+Real use showed work under containers getting lost and containers injecting noise.
+
+- A file no node takes goes to the root of its git repository, made a node on the spot (`auto-init`), unless
+  ignored, declined or foreign; anything left is logged as `unrouted` instead of being dropped silently.
+- A node reports to the closest node above it, across plain folders (`tools/cli/` in its container's Subfolders).
+- Computed summaries: children most recently updated first, each cut on a word boundary, then `also: <names>`
+  (was: children in name order, cut mid-word at 300 characters).
+- Injection drops empty and placeholder sections and computed summaries; the Subfolders section is no longer
+  injected twice.
+
 ## 1.1.0 - 2026-11-05
 
 Continuity over long chains of sessions (the three weaknesses of the long-run benchmark).

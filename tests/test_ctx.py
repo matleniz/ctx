@@ -1100,16 +1100,17 @@ class TestComputedSummary(Base):
         self._set("courses", "auto")
         self._set("courses/ml-intro", "Chapitre 4")
         self._bubble_from("courses/ml-intro")
-        self.assertEqual(self.doc("courses").summary, "ml-intro : Chapitre 4")
+        self.assertEqual(self.doc("courses").summary, "ml-intro: Chapitre 4 · also: algebra, challenge")
 
     def test_computed_summary_prefixes_child_names_joined_with_semicolon(self):
         self._set("courses/ml-intro", "Chapitre 4")
         self._set("courses/algebra", "CNN en cours")
         self._bubble_from("courses/ml-intro")
         self._bubble_from("courses/algebra")
-        self.assertEqual(self.doc("courses").summary, "algebra : CNN en cours; ml-intro : Chapitre 4")
+        want = "algebra: CNN en cours · ml-intro: Chapitre 4 · also: challenge"  # same minute: name order
+        self.assertEqual(self.doc("courses").summary, want)
         _, out = self.run_ctx("show", "--tree")
-        self.assertIn("courses/ [absorb:false] — algebra : CNN en cours; ml-intro : Chapitre 4", out)
+        self.assertIn("courses/ [absorb:false] — " + want, out)
 
     def test_private_children_skipped(self):
         self._set("courses/ml-intro", "Public")
@@ -1126,7 +1127,8 @@ class TestComputedSummary(Base):
         self._bubble_from("courses/algebra")
         s = self.doc("courses").summary
         self.assertLessEqual(len(s), 300)
-        self.assertTrue(s.endswith("…"))
+        self.assertIn("…", s)  # cut on a word boundary, never mid-entry
+        self.assertTrue(s.endswith(" · also: challenge"), s)  # each child cut, both quoted
 
     def test_model_cannot_reintroduce_placeholder(self):
         node = self.p("courses/ml-intro")

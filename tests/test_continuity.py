@@ -141,7 +141,7 @@ class TestDatedInjection(Base):
 
     def test_huge_hand_edited_decisions_capped_status_kept(self):
         node = self.p(NODE)
-        t = (node / "CONTEXT.md").read_text().replace(
+        t = (node / "CONTEXT.md").read_text().replace("(to be filled in)", "- ex3 done").replace(
             "## Notes\n", "## Decisions\n" + "- d\n" * 6000 + "## Notes\n")
         (node / "CONTEXT.md").write_text(t)
         txt = ctx.build_injection(node)[0]

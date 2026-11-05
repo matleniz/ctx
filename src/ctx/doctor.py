@@ -10,7 +10,7 @@ from .paths import (
     clean, human_cmd, read_json, root, state_dir,
 )
 from .doc import parse, valid_shape
-from .tree import find_foreign, is_foreign, parent_node
+from .tree import find_foreign, parent_node
 from .sessions import abandoned, iter_sessions, session_pending
 from .rewriter import REWRITERS, config_warnings, effective_rewriter
 
@@ -43,15 +43,12 @@ def check_node(n: Path) -> list[str]:
 
 
 def node_notes(n: Path) -> list[str]:
-    """Info lines (not problems) on one node: where its summary stops bubbling up."""
+    """Info lines (not problems) on one node: its summary reaches no node above it."""
     if n == root() or parent_node(n):
         return []
-    head = f"info: {n}: summary does not bubble above {n} ({n.parent} is not a node) "
-    if is_foreign(n.parent):
-        return [head + "(parent holds a non-ctx CONTEXT.md: "
-                "move or rename it to let summaries bubble)"]
-    parent = shlex.quote(str(n.parent))
-    return [head + f"(run `{human_cmd()} init --no-absorb {parent}` to collect its summary)"]
+    top = shlex.quote(str(root()))
+    return [f"info: {n}: summary does not bubble above {n} (no node above it) "
+            f"(run `{human_cmd()} init --no-absorb {top}` to collect the summaries at the root)"]
 
 
 def foreign_notes() -> list[str]:

@@ -20,7 +20,7 @@ from .paths import (
 from .filters import redact
 from .doc import Doc, get_status, is_auto, merge_decisions, numbered, parse, read_doc, render
 from .doc import set_status, write_doc
-from .tree import accepts, bubble, build_subs, has_ctx, is_ignored, nearest_node
+from .tree import accepts, auto_node, bubble, build_subs, has_ctx, is_ignored, nearest_node
 from .sessions import Pending, session_dir_of, session_pending
 from .rewriter import (
     LIGHT_PROMPT, ModelOutput, SYSTEM_PROMPT, build_prompt, cli_rewriter, git_diffstat,
@@ -260,16 +260,25 @@ def needs_bootstrap(node: str | Path) -> bool:
 def route(files: list[str], launch_cwd: str) -> dict[Path, list[str]]:
     """Map touched files to nodes with the absorb rule: {node: [files]}.
 
-    An unrouted launch cwd is handled by the caller.
+    A file no node takes goes to the root of its git repository, made a node if needed
+    (auto_node); the rest is logged as unrouted. An unrouted launch cwd is handled by the caller.
     """
-    out = {}
+    out, unrouted = {}, collections.Counter()
     for f in files:
         if os.path.basename(f) == "CONTEXT.md":
             continue
         d = real(os.path.dirname(f))
         n = nearest_node(d)
-        if n is not None and accepts(n, d):
+        if n is None or not accepts(n, d):
+            n = None if is_ignored(d) else auto_node(d)
+        if n is not None:
             out.setdefault(n, []).append(f)
+        elif not is_ignored(d):
+            unrouted[str(d)] += 1
+    if unrouted:
+        top = ", ".join(f"{d} ({k})" for d, k in unrouted.most_common(3))
+        log("unrouted", files=sum(unrouted.values()), dirs=len(unrouted), top=top,
+            hint="no node takes them: `ctx init <folder>` (or the folder is declined)")
     return out
 
 

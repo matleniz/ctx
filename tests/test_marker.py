@@ -56,15 +56,15 @@ class Marker(test_ctx.Base):
         self.assertEqual(rc, 1)
         self.assertEqual((d / "CONTEXT.md").read_text(), NO_MARKER)  # neither doctor --fix nor init writes it
 
-    def test_doctor_info_under_a_foreign_parent_says_to_move_it_not_to_init(self):
+    def test_node_under_a_foreign_parent_reports_to_the_closest_node_above(self):
         par = self.home / "clone"
         (par / "sub").mkdir(parents=True)
         (par / "CONTEXT.md").write_text(FOREIGN)
         self.run_ctx("init", str(par / "sub"))
+        self.assertEqual(ctx.tree.parent_node(par / "sub"), self.home)
+        self.assertEqual((par / "CONTEXT.md").read_text(), FOREIGN)  # skipped, never written
         out = self.run_ctx("doctor")[1]
-        line = next(x for x in out.splitlines() if f"info: {par / 'sub'}:" in x)
-        self.assertIn("parent holds a non-ctx CONTEXT.md: move or rename it to let summaries bubble", line)
-        self.assertNotIn("init --no-absorb", line)
+        self.assertNotIn(f"info: {par / 'sub'}:", out)
 
     def test_injection_allow_list(self):
         n = self.p("notes")

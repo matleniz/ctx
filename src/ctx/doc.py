@@ -146,16 +146,17 @@ def render(d: Doc, updated: str | None = None, order: list[str] = ORDER) -> str:
     meta = dict(d.meta)
     if updated is not None:
         meta["updated"] = updated
-    out = ["---"]
+    out = ["---"] if meta else []
     for k in (MARKER, "summary", "updated", "absorb", "private"):
         if k in meta:
             out.append(f"{k}: {meta[k]}")
     for k, v in meta.items():
         if k not in (MARKER, "summary", "updated", "absorb", "private"):
             out.append(f"{k}: {v}")
-    out.append("---")
+    out += ["---"] if meta else []
     names = [s for s in order if s in d.sections and s != SEC_SUBS]
-    names += [s for s in d.sections if s not in order] + [s for s in [SEC_SUBS] if s in d.sections]
+    names += [s for s in d.sections if s not in order and s != SEC_SUBS]
+    names += [SEC_SUBS] if SEC_SUBS in d.sections else []
     for n in names:
         out.append(f"## {n}")
         body = d.sections[n]

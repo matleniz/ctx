@@ -37,7 +37,7 @@ What you see: `ctx show` prints the context a session here receives and its size
 `CONTEXT.md` in `my-app` is rewritten (its "Status" and "Next" sections); run `ctx show` to read it and `ctx undo`
 to go back one version. If something looks wrong: `ctx doctor`, then `ctx log --fail`.
 
-In a folder with no node (and none above that covers it) the agent asks once whether to create one. `ctx init --no-absorb ~` makes a container
+Work in a git repository no node covers makes its root a node; elsewhere the agent asks once whether to create one. `ctx init --no-absorb ~` makes a container
 node for your home that only covers its own folder. Folders matching a glob in `~/.ctxignore` are never nodes.
 `CTX_OFF=1` turns every hook into a no-op.
 

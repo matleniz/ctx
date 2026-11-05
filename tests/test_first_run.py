@@ -46,8 +46,9 @@ class FirstRun(unittest.TestCase):
         r = self.sh("ctx doctor")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("0 problem(s)", r.stdout)
-        self.assertIn(f"info: {self.home / 'projects' / 'app'}: summary does not bubble above", r.stdout)
-        self.assertIn(f"(run `ctx init --no-absorb {self.home / 'projects'}` to collect its summary)", r.stdout)
+        # projects/ is not a node: app reports straight to the root node
+        self.assertNotIn("does not bubble", r.stdout)
+        self.assertIn("app/** — ", (self.home / "CONTEXT.md").read_text())
         self.assertNotIn("orphan", r.stdout)
         self.assertNotIn("leaf node", r.stdout)
         r = self.sh(f"ctx show {self.home / 'projects' / 'app'}")
@@ -58,8 +59,6 @@ class FirstRun(unittest.TestCase):
         nxt = self.replay()
         self.assertIn(f"python3 '{(CODE / 'ctx.py').resolve()}' init --no-absorb ~", nxt)  # quoted: pasteable
         self.assertFalse(any(x.startswith("ctx ") for x in nxt))
-        r = self.sh(f"python3 {CODE / 'ctx.py'} doctor")
-        self.assertIn(f"(run `python3 {(CODE / 'ctx.py').resolve()} init --no-absorb {self.home / 'projects'}`", r.stdout)
         r = self.sh(f"python3 {CODE / 'ctx.py'} show {self.home / 'projects' / 'app'}")
         self.assertIn(f"Detail of a subfolder: `python3 {(CODE / 'ctx.py').resolve()} show", r.stdout)
 

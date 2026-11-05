@@ -39,11 +39,16 @@ with ` · decisions: N` when N active decisions exist (a count, never their text
 - **Node marker.** A node is a `CONTEXT.md` whose header carries `ctx: 1` (written by `ctx init`). Any other
   `CONTEXT.md` is foreign, even one in ctx's own format: ignored everywhere, never rewritten, listed by `ctx doctor` on an `info:` line (not a problem);
   `ctx init` refuses that folder until you move or rename the file.
-  A container without child nodes yet is fine. A node whose parent folder is not a node is fine too: its summary does
-  not bubble above it, and `doctor` says so on an `info:` line (not a problem) with the `ctx init --no-absorb <parent>` that would
-  collect it.
+  A container without child nodes yet is fine. Folders between two nodes need not be nodes: a node reports to the
+  closest node above it (`~/projects/tools/cli` to `~/projects`, listed there as `tools/cli/`; a parent looks at most
+  3 levels down). Only a node with no node at all above it gets an `info:` line from `doctor` (not a problem), with
+  the `ctx init --no-absorb <root>` that would collect it.
+- **Repositories.** A file that no node takes (under a container, or in no node at all) goes to the root of its
+  git repository, which becomes a node on the spot (log line `auto-init`), unless that folder is ignored, declined
+  or holds a foreign `CONTEXT.md`. Anything left is logged as `unrouted` with its folders, never dropped silently.
 - **Injection.** Only the summary and the five known sections are injected, inside a `<ctx-data>` frame, Decisions
-  first (right after the summary, before Status); other header keys and sections are dropped. The text starts with one
+  first (right after the summary, before Status); other header keys and sections are dropped, and so are empty or
+  placeholder sections and a computed summary (it only repeats the Subfolders lines). The text starts with one
   line giving the time of the last sync that changed files (`worked` in the node's state): "written after the
   last session that changed files here", or, while only read-only bootstraps happened, the bootstrap time and
   "bootstrapped from a read-only look, never corrected by work: treat as a hint"; then "Verify in the files
@@ -54,8 +59,9 @@ with ` · decisions: N` when N active decisions exist (a count, never their text
   own folder; subfolders without a node under such a container get the "create a context?" question (never asked under
   an absorbing node). The header key is `absorb`; a header without it means true. `ctx show --tree` marks
   `[absorb:false]` nodes.
-- **Summaries.** A node never rewritten at its own level (placeholder or `summary: auto`) shows a computed summary:
-  `<child> : <summary>` for each non-private child joined with `; `, cut at 300 characters, no model call. A session
+- **Summaries.** A node never rewritten at its own level (placeholder or `summary: auto`) shows a computed summary,
+  no model call: its non-private children, most recently updated first, as `<child>: <summary>` (each cut at 120
+  characters on a word boundary) joined with ` · ` while they fit in 300 characters, then `also: <names>`. A session
   rewrite keeps its own summary, which bubble-up never overwrites.
 - **`.ctxignore`.** Optional file in the root, one glob per line (`#` comments): matching folders are never nodes or
   scanned. The root is `CTX_ROOT` if set, else your home.
