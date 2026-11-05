@@ -238,7 +238,8 @@ def parse_model_output(text: str, subs: str = "", trims: list[str] | None = None
     (not rejected); each trim is appended to `trims` if given.
     """
     summary, parts = split_model_output(text)
-    decisions, filtered = filter_lines("\n".join(x.strip() for x in DECISION_RE.findall(text)))
+    decisions, filtered = filter_lines("\n".join(x.strip() for x in DECISION_RE.findall(text)),
+                                       policy=False)
     summary, k = redact(summary)
     filtered += k
     summary = check_summary(summary, trims)

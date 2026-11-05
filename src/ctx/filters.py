@@ -14,16 +14,20 @@ SECRET_RES = [
     re.compile(r"\bglpat-[A-Za-z0-9_-]{16,}"),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{20,}"),
     # password: ..., AWS_SECRET_ACCESS_KEY=..., db_password=...: the word, alone or in a snake name
-    re.compile(r"(?i)\b(\w+_)?(password|passwd|secret|api[_-]?key|token|mot de passe)(_\w+)?\s*"
-               r"[:=]\s*\S{6,}"),
+    # the key name may carry a prefix (PGPASSWORD, AWS_SECRET) and a known suffix only (_key, _id),
+    # so names like password_reset or secret_santa stay
+    re.compile(r"(?i)\w*?(password|passwd|secret|api[_-]?key|access[_-]?key|token|mot de passe)"
+               r"(_(key|id|token|secret|access_key))?[\"']?\s*[:=]\s*[\"']?[^\s\"']{6,}"),
     re.compile(r"(?<=://)[^\s/:@]+:[^\s/@]+(?=@)"),  # the credentials of a URL, before its @host
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}"),
 ]
 
-# Rule: a line is dropped when it speaks TO a reader (you must, tell the user, please,
-# "Assistant:"), sets a policy (a line starting with always/never + verb), sets a precondition
-# (before editing anything), tries to override (ignore previous..., system prompt, from now on)
-# or holds a dangerous command (rm -rf, sudo, a download piped into a shell or interpreter).
+# Rule: a line is dropped when it speaks TO a reader (you must, tell the user, "Assistant:"),
+# tries to override (ignore previous..., system prompt, from now on) or holds a dangerous command
+# (rm -rf, sudo, a download piped into a shell or interpreter). On written state (Status, Next,
+# summary: model or agent output) policy lines are dropped too: please + action, always/never +
+# action, a precondition (before editing anything), run-this-first. Notes and Decisions keep
+# them: "decision: never store raw CSVs in git" is a decision, not an attack.
 # State lines ("- not done: tests not run", "- next: add --sum to cli.py") match none of these.
 INSTR_RES = [re.compile(p, re.I) for p in [
     r"\b(ignore|disregard|forget)\b.{0,30}"
@@ -31,6 +35,7 @@ INSTR_RES = [re.compile(p, re.I) for p in [
     r"\bignore\s+(everything|all)\b",
     r"\b(tell|inform|warn|instruct)\s+(the\s+)?(user|human|assistant|agent)\b",
     r"\byou\s+(must|should|shall|need to|have to|are to|will)\b",
+    r"\b(the\s+)?(agent|assistant|ai)\s+(must|should|shall|has to)\b",
     r"\b(do not|don't|never)\s+(tell|mention|reveal|show)\b",
     r"\b(tu|vous)\s+(dois|devez|ne dois pas|ne devez pas)\b",
     r"\bil\s+faut\s+que\s+(tu|vous)\b",
@@ -41,16 +46,24 @@ INSTR_RES = [re.compile(p, re.I) for p in [
     r"\bfrom\s+now\s+on\b",
     r"\brm\s+-[a-z]*r[a-z]*f?\b",
     r"\bsudo\b",
+    r"--no-verify\b",
     r"\b(curl|wget)\b.*\|\s*(sudo\s+)?((ba|z|da)?sh|python[\d.]*|perl|ruby|node)\b",
-    r"<\(\s*(curl|wget)\b",
-    r"\bplease\b|\bs.il\s+(te|vous)\s+pla[iî]t\b|\bmerci\s+de\b",
-    r"^\s*(?:[-*]\s*)?(always|never)\s+(?!(been|ran|run|worked|\w+ed)\b)\w+",
-    r"^\s*(?:[-*]\s*)?(toujours|jamais)\s+\w+(er|ir|re)\b",
-    r"\bbefore\s+(\w+ing\s+)?(anything|any\s+\w+|everything)\b",
-    r"\bavant\s+(de\s+\w+\s+)?(toute?|quoi que ce soit)\b",
+    r"<\(\s*(curl|wget)\b|\$\(\s*(curl|wget)\b",
     r"^\s*(?:[-*]\s*)?((assistant|ai|claude)\s*,|assistant\s*:)",
     r"</?\s*(system|assistant|ctx-data|instructions?)\b",
     r"^\s*(IMPORTANT|ATTENTION|NOTE TO (THE )?(AI|ASSISTANT|AGENT))\s*:",
+]]
+_ACT = (r"(run|execute|install|push|commit|delete|remove|ignore|skip|use|call|send|merge|deploy"
+        r"|bypass|disable|trust|edit|modify|force|upload)")
+POLICY_RES = [re.compile(p, re.I) for p in [
+    rf"\bplease\s+{_ACT}\b|\bs.il\s+(te|vous)\s+pla[iî]t\b|\bmerci\s+de\b",
+    rf"^\s*(?:[-*]\s*)?(always|never)\s*:?\s+{_ACT}\b",
+    r"^\s*(?:[-*]\s*)?(toujours|jamais)\s+\w+(er|ir|re)\b",
+    r"\bbefore\s+(you\s+)?(edit|do|start|chang|touch|writ|modif)\w*\s+"
+    r"(anything|any\s+\w+|everything)\b",
+    r"\bavant\s+(de\s+\w+\s+)?(toute?|quoi que ce soit)\b",
+    r"\bmake\s+sure\s+to\s+(run|execute|install)\b",
+    r"\b(run|execute)\s+(the\s+script\b|\S+\.sh\b).*\b(first|before)\b",
 ]]
 
 STRUCT_RE = re.compile(
@@ -85,12 +98,15 @@ def redact(text: str) -> tuple[str, int]:
     return text, n
 
 
-def instruction_shaped(line: str) -> bool:
-    """True when the line looks like an instruction to a reader or an agent."""
-    return any(pattern.search(line) for pattern in INSTR_RES)
+def instruction_shaped(line: str, policy: bool = True) -> bool:
+    """True when the line looks like an instruction to a reader or an agent.
+
+    policy=False (Notes, Decisions) leaves out the policy rules (always/never, please, before...).
+    """
+    return any(p.search(line) for p in INSTR_RES + (POLICY_RES if policy else []))
 
 
-def filter_lines(text: str) -> tuple[str, int]:
+def filter_lines(text: str, policy: bool = True) -> tuple[str, int]:
     """Redact secrets (whole text first: a PEM block spans lines), drop instruction-shaped lines.
 
     Returns (text, number of redactions and dropped lines).
@@ -98,7 +114,7 @@ def filter_lines(text: str) -> tuple[str, int]:
     text, n = redact(text)
     kept = []
     for line in text.split("\n"):
-        if instruction_shaped(line):
+        if instruction_shaped(line, policy):
             n += 1
         else:
             kept.append(line.rstrip())

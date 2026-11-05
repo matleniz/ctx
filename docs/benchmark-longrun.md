@@ -17,7 +17,7 @@ ctx, from the folder's `CONTEXT.md` (injected at session start, rewritten after 
     stays stdlib-only" given at session 3), a review after a silent regression (`int(` instead of `float(` in
     `parse.py`), "Where are we and what's next?", the next item (the `--pretty` table, which must stay stdlib-only),
     a README usage section, a final `STATUS.md`.
-- **Arms**: A = ctx on (`ctx init` on the copy, hooks from `ctx.py install-hooks claude --emit`, passed with
+- **Arms**: A = ctx on (`ctx init` on the copy, hooks from `ctx.py install-hooks claude --settings-file FILE --yes`, passed with
   `--settings FILE --setting-sources project,local`); B = same command with `CTX_OFF=1`, no `CONTEXT.md`.
   3 chains per scenario and arm, each from a fresh copy of the pristine folder: 2 x 2 x 3 x 10 = 120 sessions.
 - **Sessions**: Haiku, `--output-format json`, tools `Read,Glob,Grep,Write,Edit` (no shell: the agent cannot run
@@ -258,7 +258,7 @@ during the run (size checked before and after; no line mentions the test home).
 ## Reproduce
 
 ```
-python3 ctx.py install-hooks claude --emit /tmp/ctx-long/hooks.json
+python3 ctx.py install-hooks claude --settings-file /tmp/ctx-long/hooks.json --yes
 python3 bench/run_longrun.py run --home /tmp/ctx-long/home --hooks /tmp/ctx-long/hooks.json --out /tmp/ctx-long/out
 # run 2 (ctx arm only): add --arms A --max-sessions 70
 python3 bench/run_longrun.py judge --home /tmp/ctx-long/home --out /tmp/ctx-long/out

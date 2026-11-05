@@ -67,14 +67,15 @@ def cmd_sync(args: argparse.Namespace) -> int:
     if args.session:
         r = sync_session(args.session)
         print(f"ctx: session {args.session}: {r}")
-        return 1 if r in ("fail", "nosession") else 0
+        return 1 if r in ("fail", "nosession", "busy") else 0
     if args.dir:
         d = real(args.dir)
         if not has_ctx(d):
             print(f"ctx: {d} is not a node", file=sys.stderr)
             return 1
-        print(f"ctx: {sync_node(d, [], [], cli_rewriter)}")
-        return 0
+        r = sync_node(d, [], [], cli_rewriter)
+        print(f"ctx: {r}")
+        return 1 if r in ("fail", "busy") else 0
     found = catch_up(spawn=False)
     for sid in found:
         print(f"ctx: session {sid}: {sync_session(sid)}")

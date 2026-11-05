@@ -55,7 +55,7 @@ Unit tests run offline (`python3 -m unittest discover -s tests`). The journey `s
 | Uninstall | The journey ends with a clean uninstall in a temporary HOME | `step_uninstall` |
 | Limits | The rewrite needs `claude`; cursor and agy are hook clients only (no rewriter) | `test_no_config_file_is_fine`, `test_install_hooks_cursor_prints_no_rewriter_line` |
 | reference: Behaviour details | agy sessions (no end hook) are caught up by a later session start once over | `test_agy_post_tool_use_collects_only_edit_tools_and_answers_empty_object`, `test_catch_up_finds_crashed_session` |
-| reference: Behaviour details | A session without its end marker is over after 6 hours without a hook | `test_numbers_are_the_constants`, `test_a_session_is_over_when_ended_or_idle_for_hours` |
+| reference: Behaviour details | A session without its end marker is over after 1 hour without a hook | `test_numbers_are_the_constants`, `test_a_session_is_over_when_ended_or_idle_for_hours` |
 | reference: Behaviour details | A session without file changes gets a sync-light by code (decision: and next: lines), no model call | `test_decision_and_next_lines_are_applied_without_a_model_call`, `test_light_never_changes_status_or_summary`, `test_instruction_shaped_next_line_is_dropped` |
 | how-it-works: Guards | Two syncs of one node wait for each other; a lock wait that runs out is retried, not counted as a failure | `test_a_second_sync_of_a_node_waits_for_the_first`, `test_lock_wait_runs_out_busy_not_failed`, `test_failed_sync_is_replayed_from_the_session_offsets` |
 | Limits | Linux, WSL, macOS only (`fcntl`); opencode unsupported | `test_platform_limit_fcntl`, `test_clients_named_in_readme_are_supported` |

@@ -94,8 +94,8 @@ with ` · decisions: N` when N active decisions exist (a count, never their text
   session start, and not in `.ctxignore`, `.git` or a child node, are added (log line `bash-scan`). The heuristic can
   also pick up a file edited by another process in the same window.
 - **Liveness.** A session is over when its end hook wrote the `ended` marker (a resumed session clears it), or
-  after 6 hours without a hook. The next session start syncs the sessions that are over; a running one syncs at its
-  own end. agy has no end hook: its sessions are synced after 6 hours without a hook, or by `ctx sync`.
+  after 1 hour without a hook. The next session start syncs the sessions that are over; a running one syncs at its
+  own end. agy has no end hook: its sessions are synced after 1 hour without a hook, or by `ctx sync`.
 - **Trimming.** Over-long model output is trimmed, not rejected: a summary is cut at the last space to 300 characters
   with `…`, a section keeps its first whole lines within its caps (log line `trimmed`). A rewrite that copies a
   subfolder's own summary line is rejected and retried once, then the old file is kept.

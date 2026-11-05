@@ -48,7 +48,7 @@ These are best-effort protections, each covered by tests ([readme-claims.md](rea
 |---|---|
 | Hook loop (the rewrite is itself a Claude session) | `CTX_INNER=1` on the model call; every hook exits at once when it is set |
 | Dirtying git | `CONTEXT.md` goes to `.git/info/exclude`; history and logs live in `~/.ctx`, outside repos |
-| Secrets | pattern-based filter on the rewrite input and output (tokens, `*_SECRET*=` / `*_TOKEN=`-style keys, URL credentials, PEM blocks); scans skip `.env*`, `*.pem`, `*.key`; `~/.ctx` is private (0700, files 0600) |
+| Secrets | pattern-based filter on the rewrite input and output (tokens, key names such as `AWS_SECRET_ACCESS_KEY` or `GITHUB_TOKEN`, URL credentials, PEM blocks); scans skip `.env*`, `*.pem`, `*.key`; `~/.ctx` is private (0700, files 0600) |
 | Orders in the file (prompt injection) | a `CONTEXT.md` ctx did not write on this machine (a clone, a committed file) is foreign, never injected; instruction-shaped lines are dropped from model output, and again at injection for hand-edited content; the frame says the content is not instructions |
 | Leaks between siblings | by inputs, see "Isolation" below |
 | Bad model output | validated in code (sections, caps, summary length); invalid keeps the old file and the failure shows at the next session start |
@@ -122,7 +122,7 @@ Each case is covered by `tests/test_robust.py`. In every case a failed write nev
 | Folder moved, renamed or deleted | `CONTEXT.md` travels with the folder and stays a node while it is a version ctx wrote; the parent line follows at the next rebuild; a deleted node disappears from it; `doctor` lists state of vanished paths older than 30 days and `ctx doctor --fix` removes it |
 | `CONTEXT.md` edited during a sync (a person, another session's agent) | When its Status or Next changed during the model call, nothing is written: the sync is redone from the new file (`sync-conflict` log line, at most 3 tries, then the work waits for the next sync) |
 | `~/.ctx` missing, unwritable or disk full | Recreated when possible; the session starts with its context, `hook-error` in the log when it can be written |
-| Session never closed (window closed, long sleep, WSL stopped) | A session without its end marker counts as running for 6 hours after its last hook, then the next session start catches it up once; later edits sync alone; nothing is attributed to another node |
+| Session never closed (window closed, long sleep, WSL stopped) | A session without its end marker counts as running for 1 hour after its last hook, then the next session start catches it up once; later edits sync alone; nothing is attributed to another node |
 | Growth | `log` over 1 MB moves to `log.1` (one kept, under a lock; logged values are stripped of control characters, `=` and length); `sessions/` purged after 7 days; history keeps 10 versions; `doctor` prints the size of `~/.ctx` |
 | Hook slower than its 10 s delay | The hook gives up after 8 s with exit 0: the session starts without context; `hook-timeout` log line (a read stuck in uninterruptible disk I/O cannot be interrupted: the CLI's own delay then applies) |
 
@@ -130,7 +130,7 @@ Each case is covered by `tests/test_robust.py`. In every case a failed write nev
 
 - Model quality (Haiku) is only measured on the integration runs, not guaranteed.
 - A crash can lose the last messages of a session (touched paths survive and are caught up at the next start).
-- A session that ends without its end hook (crash, agy, which has none) is synced only 6 hours after its last hook,
+- A session that ends without its end hook (crash, agy, which has none) is synced only 1 hour after its last hook,
   or by `ctx sync`.
 - The group kill and parent-death kill of the rewrite call are Linux/WSL; elsewhere a timeout kills only the direct child.
 - The rewrite needs `claude`; cursor and agy are hook clients only.

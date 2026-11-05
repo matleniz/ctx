@@ -5,7 +5,8 @@ ctx writes only: `CONTEXT.md` in the folders you made nodes, a line in their `.g
 you name (`~/.claude/settings.json`, `~/.cursor/hooks.json`, `~/.gemini/config/hooks.json`) with a `.ctx-bak` backup
 next to it. The agent of a session edits its node's `CONTEXT.md` itself, with its own tools and permissions; ctx
 takes only the summary, Status and Next of that edit, through a validator, and restores the state of any other node
-the session edited. When the agent did not, ctx sends the touched file paths, the last assistant messages and a
+the session edited through its edit tools (an edit made through a shell command is not seen as the session's: it
+is treated like a hand edit). When the agent did not, ctx sends the touched file paths, the last assistant messages and a
 `git diff --stat` to `claude -p` (your account, your model provider), after a best-effort secret filter. A
 `CONTEXT.md` that ctx did not write on this machine (a cloned repository) is never injected. `~/.ctx` is private
 (0700, files 0600).

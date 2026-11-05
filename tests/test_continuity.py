@@ -199,10 +199,10 @@ class TestLiveness(Base):
     def test_a_session_is_over_when_ended_or_idle_for_hours(self):
         self.session("L", NODE, [NODE + "/a.py"], "m")
         sd = ctx.sessions.session_dir_of("L")
-        old = time.time() - 3 * 3600
+        old = time.time() - ctx.paths.IDLE_MAX // 2
         for x in [*sd.iterdir(), sd]:
             os.utime(x, (old, old))
-        self.assertTrue(ctx.sessions.session_live(sd))  # idle 3 h, no end marker: still running
+        self.assertTrue(ctx.sessions.session_live(sd))  # idle half the limit, no end marker: still running
         self.assertNotIn("L", ctx.sessions.catch_up(spawn=False, skip_live=True))
         old = time.time() - ctx.paths.IDLE_MAX - 60
         for x in [*sd.iterdir(), sd]:

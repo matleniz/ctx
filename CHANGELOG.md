@@ -42,8 +42,8 @@ Simpler:
   gone.
 - One lock per node instead of a work queue: a second sync of a node waits for the first (`sync-busy` if the wait
   runs out; the session is retried, not counted as failed). `~/.ctx/pending/` is no longer used.
-- A session is over at its end hook, or after 6 hours without a hook (no CLI pid tracking any more). agy, which has
-  no end hook, is synced 6 hours after its last hook or by `ctx sync`.
+- A session is over at its end hook, or after 1 hour without a hook (no CLI pid tracking any more). agy, which has
+  no end hook, is synced 1 hour after its last hook or by `ctx sync`.
 - Removed: the "summary drops a key figure" retry (a second model call), `ctx log --node` and `--since` (grep the
   log), doctor's retry/trim counters, the `external-edit` and `edit-during-sync` log lines, the recognition of hook
   entries installed before the `CTX_HOOK=1` marker (pre-1.0), the hidden `install-hooks --emit`.

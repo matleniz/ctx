@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from .paths import (
-    BUBBLE_LOCK_WAIT, CONFLICT_RE, EMPTY_BODIES, FILES_MAX, MARKER, MAX_NEXT, MAX_NEXT_LINES,
+    CONFLICT_RE, EMPTY_BODIES, FILES_MAX, MARKER, MAX_NEXT, MAX_NEXT_LINES,
     MAX_STATUS, MAX_STATUS_LINES, PLACEHOLDERS, MAX_SUMMARY, MAX_TOTAL, NODE_LOCK_WAIT, SCAN_MAX,
     SCAN_SKIP_DIRS, SCAN_SKIP_FILES, SCAN_SLACK, SEC_DECISIONS, SEC_NEXT, SEC_NOTES, SEC_STATUS,
     SEC_SUBS, atomic_write, clip, dirlock, log, real, root, set_session, stamp,
@@ -67,7 +67,7 @@ def sync_light(node: Path, sid: str, msgs: list[str]) -> str:
     `prochaine étape:`) lines replace Next, through the same filters as a model answer.
     """
     text = "\n".join(msgs)
-    decisions, k = filter_lines("\n".join(x.strip() for x in DECISION_RE.findall(text)))
+    decisions, k = filter_lines("\n".join(x.strip() for x in DECISION_RE.findall(text)), False)
     nxt, k2 = filter_lines("\n".join("- " + x.strip() for x in NEXT_RE.findall(text)))
     decisions = [x for x in decisions.split("\n") if x.strip()]
     nxt = trim_section(nxt.strip(), MAX_NEXT_LINES, MAX_NEXT) if nxt.strip() else ""
@@ -327,8 +327,12 @@ def restore_node(d: Path, sid: str, why: str) -> None:
     The edit is settled at once: a later sync, which did not see the session's edit, would take
     the file as an outside edit and keep an emptied Notes or Decisions.
     """
-    with dirlock(d, timeout=BUBBLE_LOCK_WAIT) as got:
-        if not got or written_doc(d) is None:
+    # wait as long as a sync may hold the node: giving up would let its next sync trust the edit
+    with dirlock(d, timeout=NODE_LOCK_WAIT) as got:
+        if not got:
+            log("restore-busy", node=d, session=sid)
+            return
+        if written_doc(d) is None:
             return
         doc = merged_base(d, read_doc(d))
         doc.sections[SEC_SUBS] = build_subs(d)

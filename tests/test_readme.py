@@ -150,7 +150,7 @@ class Readme(unittest.TestCase):
                        f"never exceeds {ctx.paths.MAX_TOTAL} characters", f"at most {ctx.paths.MAX_INJECT} characters",
                        f"With {ctx.paths.FULL_ENTRIES} children or fewer", f"cut to {ctx.paths.SHORT_WIDTH} characters",
                        f"beyond {ctx.paths.MAX_ENTRIES}", f"last {ctx.paths.HISTORY_KEEP} versions",
-                       f"after {ctx.paths.IDLE_MAX // 3600} hours without a hook"):
+                       f"after {ctx.paths.IDLE_MAX // 3600} hour{'s' if ctx.paths.IDLE_MAX >= 7200 else ''} without a hook"):
             self.assertIn(phrase, " ".join(REFERENCE.split()))
 
     def test_platform_limit_fcntl(self):

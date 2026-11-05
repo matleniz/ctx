@@ -124,7 +124,7 @@ def injected_doc(node: Path) -> Doc:
     nfilt = 0
     for name in ORDER:
         if name in sections:
-            sections[name], k = filter_lines(sections[name])
+            sections[name], k = filter_lines(sections[name], name not in (SEC_NOTES, SEC_DECISIONS))
             nfilt += k
     summ, k = redact(d.meta.get("summary", ""))
     nfilt += k

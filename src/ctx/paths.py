@@ -46,7 +46,7 @@ MODEL_TIMEOUT = 100  # one model call
 # a sync waits this long for another sync of the same node (its two model calls and a margin)
 NODE_LOCK_WAIT = 2 * MODEL_TIMEOUT + 30
 BUBBLE_LOCK_WAIT = 30  # a parent's lock, held only to rebuild its Subfolders
-IDLE_MAX = 6 * 3600  # a session without its end marker is over after this long without a hook
+IDLE_MAX = 3600  # a session without its end marker is over after this long without a hook
 HOOK_DEADLINE = 8  # seconds: a hook answers or gives up before the 10 s the CLI grants it
 
 # state dir
