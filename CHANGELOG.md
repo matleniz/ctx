@@ -11,9 +11,12 @@ one file that surfaces the first line of the `STATE.md` files below the session'
 - Folder names and first lines are flattened to one line without control characters (a folder name with a newline
   could forge a line); a `#` is removed only as a Markdown heading mark (`#77` stays).
 - `install` quotes the path of `ctx.py`; the hook resolves a relative `cwd`.
-- A `STATE.md` tracked by git is not shown (it came with a repository, maybe from someone else); every `STATE.md`
-  below is listed, a folder's own state no longer hides those under it; lines are shown in quotes; known
-  invisible characters are removed; folder paths are capped.
+- A `STATE.md` tracked by git is not shown (it came with a repository, maybe from someone else). ctx reads the git
+  index file itself and runs no program, so a hostile repository configuration cannot execute code; a repository
+  whose index cannot be read has its entries left out, and the output says so.
+- Every `STATE.md` below is listed: a folder's own state no longer hides those under it. Paths and lines are
+  shown as JSON strings, `[ctx]` inside them is neutralized, known invisible characters are removed, paths are
+  capped.
 - Removed: the model rewrite, `CONTEXT.md` nodes, decisions kept by code, history and undo, locks and queues, all
   commands but `hook session-start`, `tree` and `install` (which now only prints). The 1.x hooks other than
   session-start are accepted and do nothing, so an old install keeps working until it is cleaned up.

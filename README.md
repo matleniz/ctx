@@ -6,7 +6,7 @@ Each working folder (a git repository, a course folder) holds a `STATE.md` that 
 finishes: one summary line, then Status, Next and Decisions. A rule in your `AGENTS.md` asks for it. `ctx` adds one
 thing: a session started in a parent folder (your home, a `courses/` folder) receives the first line of every
 `STATE.md` below it, so "what is blocked?" is answered without opening each folder.
-One file, Python 3.10+ standard library only, about 250 lines. It writes nothing and keeps nothing.
+One file, Python 3.10+ standard library only, about 330 lines. It writes nothing and keeps nothing.
 
 ## STATE.md
 
@@ -35,15 +35,15 @@ the rule there). Other CLIs have their own file name; check their docs.
 ## Folder state (STATE.md)
 - When you start working in a folder (git root or course folder), read its `STATE.md` if there is one. It may be
   stale: check before acting on Next.
-- Before finishing a session that changed something (a file, a result, a decision), update that folder's
-  `STATE.md`, or create it:
+- At the end of each task that changed something (a file, a result, a decision), before handing back, update
+  that folder's `STATE.md`, or create it:
   - line 1: one sentence, 200 characters max, "where it stands. Next: ..." (this line is shown in parent folders);
   - `## Status`: done / not done / blocked, with evidence (commit, test, file); work you could not check is
     written "not verified: ...";
   - `## Next`: the next unfinished task, never "re-check";
   - `## Decisions`: add only new decisions, dated, with their reason; never remove earlier ones.
-- Write `STATE.md` in the repository's language (that of its README and code), English by default; 40 lines max:
-  summarize the old Status rather than pile up (Decisions are not summarized).
+- Write `STATE.md` in the repository's language (that of its README and code), English by default; 40 lines max
+  outside Decisions: summarize the old Status rather than pile up (Decisions are kept whole).
 - A session that changed several working folders updates the `STATE.md` of each of them, and only of those.
   Never write the `STATE.md` of a folder you did not work in. No secrets. No `STATE.md` for a plain container
   (`~`, `courses/`).
@@ -83,18 +83,23 @@ Details: read <folder>/STATE.md.
 
 What the scan does: up to 4 levels below the start folder, newest first, 30 lines max and 8 per git repository,
 so that one repository cannot take the whole list. It skips hidden folders, `node_modules`, virtual environments
-and build output, never follows a symlink, and leaves out any `STATE.md` that git tracks (one `git ls-files` per
-repository). Folder names and first lines are flattened to one line each, without control characters or known
-invisible characters, cut to a fixed length, and the line is shown in quotes. The scan checks a one-second budget
-between entries (a hung network mount is bounded by the hook's 5-second timeout); when it is cut short, it says
-so. The hook always exits 0 and prints nothing when there is no `STATE.md` below.
+and build output, never follows a symlink, and leaves out any `STATE.md` that git tracks: ctx reads the
+repository's index file itself and never runs git, so a hostile repository configuration cannot execute anything.
+When an index cannot be read (unknown format, too slow), that repository's entries are left out too, and the
+output says how many. Folder names and first lines are flattened to one line each, without control characters or
+known invisible characters, cut to a fixed length, and shown as JSON strings. The scan checks a one-second budget
+between entries, plus up to one second for the indexes (a hung network mount is bounded by the hook's 5-second
+timeout); when it is cut short, it says so. The hook always exits 0 and prints nothing when there is no
+`STATE.md` below.
 
 ## Why so little
 
 Version 1 (branch [`v1`](https://github.com/matleniz/ctx/tree/v1), tag `v1.2.0`) rewrote each folder's state with a
 model call after the session, kept decisions in code, history, undo and locks. Measured on 10-session chains, a
-plain `STATE.md` rule did as well (continuity 8.5 and 8.6 out of 9 versus 8.3 and 7.6 for 1.2.0; 3 chains);
-see [the long-run benchmark](https://github.com/matleniz/ctx/blob/v1/docs/benchmark-longrun.md).
+plain `STATE.md` rule did as well (continuity 8.5 and 8.6 out of 9 versus 8.3 and 7.6 for 1.2.0); see
+[Measured in the 1.2.0 README](https://github.com/matleniz/ctx/blob/v1/README.md#measured) and the
+[long-run method](https://github.com/matleniz/ctx/blob/v1/docs/benchmark-longrun.md). All these figures are
+indicative: 3 chains per arm, one model (Haiku), one blind judge (Sonnet).
 The rule as worded here, on the same chains (Haiku, 6 November 2026): continuity 8.5 and 8.8. This measures the
 rule only: inside the folder itself the hook shows nothing.
 The bubbling up is the part worth keeping. On 6 questions asked from a parent folder (18 sessions per arm), every
@@ -110,6 +115,8 @@ Precise questions about one folder gain nothing. The scripts of these two lite m
 - `STATE.md` is out of git, so it does not follow a repository to another machine or survive a deleted worktree;
   each git worktree keeps its own.
 - A `STATE.md` you chose to commit is hidden by the hook, like any tracked one.
+- `STATE.md` is a git-ignored file: `git clean -x` deletes it.
+- Repositories using SHA-256 object names are left out (their index format is not read).
 - The per-repository cap needs a `.git`: an unpacked archive full of `STATE.md` files can still fill the list, and
   a monorepo with more than 8 sub-projects shows only its 8 newest.
 - Linux, macOS and WSL; Windows without WSL is untested.
