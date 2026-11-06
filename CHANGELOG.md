@@ -14,6 +14,10 @@ one file that surfaces the first line of the `STATE.md` files below the session'
 - A `STATE.md` tracked by git is not shown (it came with a repository, maybe from someone else). ctx reads the git
   index file itself and runs no program, so a hostile repository configuration cannot execute code; a repository
   whose index cannot be read has its entries left out, and the output says so.
+- Hardened against unpacked archives: a `.git` that is not a regular file or folder (FIFO, symlink) is not opened;
+  forged indexes (huge counts, paths over 4096 bytes, split or sparse index) are refused within the time budget;
+  at most 12 entries per folder directly below the start folder; a future date sorts last; repository names in
+  notices are quoted; `[CTX]`-like variants of the frame marker are neutralized.
 - Every `STATE.md` below is listed: a folder's own state no longer hides those under it. Paths and lines are
   shown as JSON strings, `[ctx]` inside them is neutralized, known invisible characters are removed, paths are
   capped.

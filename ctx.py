@@ -26,12 +26,14 @@ STATE = "STATE.md"
 MAX_DEPTH = 4          # levels below the start folder (~/projects/<p>/wt/<branch> is level 4)
 MAX_LINES = 30         # entries shown
 PER_REPO = 8           # entries shown per git repository below the start folder (a clone cannot fill the list)
+PER_TOP = 12           # entries shown per folder directly below the start folder (nor can an unpacked archive)
 MAX_CHARS = 200        # per first line
 BUDGET_S = 1.0         # wall-clock cap of the scan, checked between entries
 MAX_DIRS = 20000       # folders entered at most
 READ_BYTES = 4096
 SKIP = {"node_modules", "venv", "env", "__pycache__", "dist", "build", "target", "site-packages"}
 HEADING = re.compile(r"^#+(\s+|$)")
+FRAME = re.compile(r"[\[［【〔]\s*[cｃＣ][tｔＴ][xｘＸ]\s*[\]］】〕]", re.IGNORECASE)
 
 Entry = tuple[float, str, str, str, str]  # (mtime, relative path, first line, repository key or "", git dir)
 INVISIBLE = set(range(0xFE00, 0xFE10)) | set(range(0xE0100, 0xE01F0)) | {
@@ -46,7 +48,7 @@ def clean(text: str) -> str:
 
 def quote(text: str) -> str:
     """A JSON string: quotes inside are escaped, and the frame marker cannot appear verbatim."""
-    return json.dumps(text.replace("[ctx]", "(ctx)"), ensure_ascii=False)
+    return json.dumps(FRAME.sub("(ctx)", text), ensure_ascii=False)
 
 
 def cap(text: str, limit: int = MAX_CHARS) -> str:
@@ -78,8 +80,12 @@ MAX_INDEX = 64 << 20   # bytes of a git index read at most
 def index_file(repo: str) -> str | None:
     """Path of the git index of a repository folder (.git directory or .git file of a worktree / submodule)."""
     dot = os.path.join(repo, ".git")
+    if os.path.islink(dot):
+        return None
     if os.path.isdir(dot):
         return os.path.join(dot, "index")
+    if not os.path.isfile(dot):
+        return None
     try:
         with open(dot, "rb") as f:
             head = f.read(4096).decode("utf-8", "replace").strip()
@@ -90,7 +96,10 @@ def index_file(repo: str) -> str | None:
     return os.path.join(repo, head[len("gitdir:"):].strip(), "index")
 
 
-def index_paths(data: bytes) -> set[str] | None:
+MAX_NAME = 4096        # bytes of a path in a git index (longer: the index is not trusted)
+
+
+def index_paths(data: bytes, deadline: float = float("inf")) -> set[str] | None:
     """Casefolded paths recorded in a git index (versions 2-4, SHA-1). None when it cannot be read with certainty.
 
     The index is parsed as data: no git command runs, so a hostile repository configuration cannot execute anything.
@@ -99,11 +108,13 @@ def index_paths(data: bytes) -> set[str] | None:
         return None
     version = int.from_bytes(data[4:8], "big")
     count = int.from_bytes(data[8:12], "big")
-    if version not in (2, 3, 4):
+    if version not in (2, 3, 4) or count > len(data) // 63:
         return None
     pos, prev, out = 12, b"", set()
     try:
-        for _ in range(count):
+        for i in range(count):
+            if i % 1024 == 0 and time.monotonic() > deadline:
+                return None
             flags = int.from_bytes(data[pos + 60:pos + 62], "big")
             p = pos + 62 + (2 if version >= 3 and flags & 0x4000 else 0)
             if version == 4:
@@ -114,19 +125,24 @@ def index_paths(data: bytes) -> set[str] | None:
                     byte = data[p]
                     strip = ((strip + 1) << 7) | (byte & 0x7F)
                     p += 1
-                end = data.index(b"\0", p)
-                if strip > len(prev):
+                end = data.index(b"\0", p, p + MAX_NAME + 1)
+                if strip > len(prev) or len(prev) - strip + end - p > MAX_NAME:
                     return None
                 name = prev[:len(prev) - strip] + data[p:end]
                 pos = end + 1
             else:
-                end = data.index(b"\0", p)
+                end = data.index(b"\0", p, p + MAX_NAME + 1)
                 name = data[p:end]
                 pos += (p - pos + len(name) + 8) & ~7
             if (flags & 0xFFF) not in (len(name), 0xFFF) and version != 4:
                 return None
             out.add(os.fsdecode(name).casefold())
             prev = name
+        while pos + 8 <= len(data) - 20:  # extensions; a split or sparse index lists only part of the paths
+            sig, size = data[pos:pos + 4], int.from_bytes(data[pos + 4:pos + 8], "big")
+            if sig in (b"link", b"sdir"):
+                return None
+            pos += 8 + size
     except (IndexError, ValueError):
         return None
     return out
@@ -164,7 +180,7 @@ def tracked(found: list[Entry], root: Path, deadline: float) -> tuple[set[str], 
             if not os.path.isfile(index) or os.path.getsize(index) > MAX_INDEX:
                 raise OSError
             with open(index, "rb") as f:
-                paths = index_paths(f.read(MAX_INDEX))
+                paths = index_paths(f.read(MAX_INDEX), deadline)
         except OSError:
             paths = None
         if paths is None:
@@ -222,7 +238,8 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
                     regular = False
                 line = first_line(Path(state)) if regular else ""
                 if line:
-                    found.append((min(st.st_mtime, time.time()), rel, line, key, gd))
+                    mtime = st.st_mtime if st.st_mtime <= time.time() + 60 else 0.0  # a future date sorts last
+                    found.append((mtime, rel, line, key, gd))
                 nxt.append((e.path, key, gd))
             if not complete:
                 break
@@ -236,20 +253,24 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
 
 def render(root: Path, found: list[Entry], complete: bool, dropped: int = 0) -> str:
     """The text a session receives; empty when no STATE.md was found and the scan was complete."""
-    if not found and complete:
+    if not found and complete and not dropped:
         return ""
-    where = "~" if root == Path.home() else clean(str(root))
+    where = "~" if root == Path.home() else quote(clean(str(root)))
     if not found:
-        return f"[ctx] No STATE.md found below {where} before the scan was cut short (too many folders or too slow)."
-    per_repo: dict[str, int] = {}
+        why = [f"{dropped} left out (tracked by git or unreadable index)"] if dropped else []
+        why += [] if complete else ["the scan was cut short (too many folders or too slow)"]
+        return f"[ctx] No STATE.md shown below {where}: " + "; ".join(why) + "."
+    count: dict[tuple[str, str], int] = {}
     kept: list[Entry] = []
     hidden: dict[str, int] = {}
     for entry in sorted(found, key=lambda t: (-t[0], t[1])):
-        key = entry[3]
-        if key and per_repo.get(key, 0) >= PER_REPO:
-            hidden[key] = hidden.get(key, 0) + 1
+        groups = [("top", entry[1].split(os.sep)[0])] + ([("repo", entry[3])] if entry[3] else [])
+        full = [g for g in groups if count.get(g, 0) >= (PER_TOP if g[0] == "top" else PER_REPO)]
+        if full:
+            hidden[full[0][1]] = hidden.get(full[0][1], 0) + 1
             continue
-        per_repo[key] = per_repo.get(key, 0) + 1
+        for g in groups:
+            count[g] = count.get(g, 0) + 1
         kept.append(entry)
     shown = kept[:MAX_LINES]
     out = [f"[ctx] State of the folders below {where}: first line of each STATE.md, written by the agents "
@@ -259,9 +280,8 @@ def render(root: Path, found: list[Entry], complete: bool, dropped: int = 0) -> 
         out.append(f"- {quote(cap(clean(rel), 120))} ({when}): {quote(line)}")
     if hidden:
         n, k = sum(hidden.values()), len(hidden)
-        names = ", ".join(clean(key) for key in sorted(hidden)[:3]) + (", ..." if k > 3 else "")
-        repos = "repository" if k == 1 else "repositories"
-        out.append(f"(+{n} more in {k} {repos} ({names}), at most {PER_REPO} each)")
+        names = ", ".join(quote(cap(clean(key), 60)) for key in sorted(hidden)[:3]) + (", ..." if k > 3 else "")
+        out.append(f"(+{n} more in {names}: at most {PER_REPO} per repository and {PER_TOP} per top folder)")
     if len(kept) > len(shown):
         out.append(f"(+{len(kept) - len(shown)} more, oldest omitted)")
     if dropped:
