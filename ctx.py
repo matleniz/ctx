@@ -38,7 +38,7 @@ HEADING = re.compile(r"^#+(\s+|$)")
 FRAME = re.compile(  # [ctx] in Latin, full-width, Cyrillic or Greek letters
     r"[\[［【〔]\s*[cｃＣсС][tｔＴтТτΤ][xｘＸхХχΧ]\s*[\]］】〕]", re.IGNORECASE)
 _B = r"(?<![A-Za-z0-9_-])"  # a token starts at a word boundary: task-scheduler is not an sk- key
-SECRET = re.compile("|".join([  # common token formats, credentials in URLs and assignments, long random runs
+SECRET = re.compile("|".join([  # known token formats, credentials in URLs, long random runs
     _B + r"sk-[A-Za-z0-9_-]{16,}", _B + r"[sr]k_(?:live|test)_[A-Za-z0-9]{10,}", _B + r"gh[pousr]_[A-Za-z0-9]{20,}",
     _B + r"github_pat_[A-Za-z0-9_]{20,}", _B + r"glpat-[A-Za-z0-9_-]{16,}", _B + r"hf_[A-Za-z0-9]{20,}",
     _B + r"npm_[A-Za-z0-9]{20,}", _B + r"xox[abprs]-[A-Za-z0-9-]{10,}", _B + r"AKIA[0-9A-Z]{16}",
@@ -46,13 +46,9 @@ SECRET = re.compile("|".join([  # common token formats, credentials in URLs and 
     r"(?i:bearer)\s+(?=[A-Za-z._~+/-]*[0-9])[A-Za-z0-9._~+/-]{16,}=*",
     _B + r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     r"(?<=://)[^/\s:@]+:[^/\s@]+(?=@)",
-
     r"\b(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{40,}\b"]))
-ASSIGN = re.compile(r"(\b[A-Z0-9_]*(?:SECRET|PASSWORD|PASSWD|TOKEN|API_KEY|ACCESS_KEY)[A-Z0-9_]*=|"
-                    r"(?i:\bpassword=|\bpasswd=))(\S+)")  # SOME_SECRET=value, password=value: the value goes
-FOLD = sys.platform in ("darwin", "win32")  # case-insensitive file systems: compare paths without case
 
-Entry = tuple[float, str, str, str, str]  # (mtime, relative path, first line, repository key or "", git dir)
+Entry = tuple[float, str, str, str]  # (mtime, relative path, first line, repository key or "")
 INVISIBLE = set(range(0xFE00, 0xFE10)) | set(range(0xE0100, 0xE01F0)) | {
     0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0}
 
@@ -68,16 +64,12 @@ def quote(text: str) -> str:
     return json.dumps(FRAME.sub("(ctx)", text), ensure_ascii=False)
 
 
-def fold(path: str) -> str:
-    return path.casefold() if FOLD else path
-
-
 def cap(text: str, limit: int = MAX_CHARS) -> str:
     return text if len(text) <= limit else text[: limit - 1].rsplit(" ", 1)[0] + "…"
 
 
 def redact(text: str) -> str:
-    return ASSIGN.sub(r"\1[redacted]", SECRET.sub("[redacted]", text))
+    return SECRET.sub("[redacted]", text)
 
 
 def first_line(path: Path) -> str:
@@ -107,142 +99,21 @@ def is_repo(path: str) -> bool:
     return os.path.lexists(os.path.join(path, ".git"))
 
 
-MAX_INDEX = 64 << 20   # bytes of a git index read at most
+def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[list[Entry], bool]:
+    """STATE.md files strictly below root, breadth first. Returns (entries, complete).
 
-
-def index_file(repo: str) -> str | None:
-    """Path of the git index of a repository folder (.git directory or .git file of a worktree / submodule)."""
-    dot = os.path.join(repo, ".git")
-    if os.path.islink(dot):
-        return None
-    if os.path.isdir(dot):
-        return os.path.join(dot, "index")
-    if not os.path.isfile(dot):
-        return None
-    try:
-        with open(dot, "rb") as f:
-            head = f.read(4096).decode("utf-8", "replace").strip()
-    except OSError:
-        return None
-    if not head.startswith("gitdir:"):
-        return None
-    target = os.path.join(repo, head[len("gitdir:"):].strip())
-    return os.path.join(target, "index") if os.path.isdir(target) else None  # a dangling gitdir proves nothing
-
-
-MAX_NAME = 4096        # bytes of a path in a git index (longer: the index is not trusted)
-
-
-def index_paths(data: bytes, deadline: float = float("inf")) -> set[str] | None:
-    """Casefolded paths recorded in a git index (versions 2-4, SHA-1). None when it cannot be read with certainty.
-
-    The index is parsed as data: no git command runs, so a hostile repository configuration cannot execute anything.
-    """
-    if len(data) < 12 or data[:4] != b"DIRC":
-        return None
-    version = int.from_bytes(data[4:8], "big")
-    count = int.from_bytes(data[8:12], "big")
-    if version not in (2, 3, 4) or count > len(data) // 63:
-        return None
-    pos, prev, out = 12, b"", set()
-    try:
-        for i in range(count):
-            if time.monotonic() > deadline:
-                return None
-            flags = int.from_bytes(data[pos + 60:pos + 62], "big")
-            p = pos + 62 + (2 if version >= 3 and flags & 0x4000 else 0)
-            if version == 4:
-                byte = data[p]
-                strip = byte & 0x7F
-                p += 1
-                while byte & 0x80:
-                    if strip > MAX_NAME:  # a longer strip cannot be honest: refuse before the number grows
-                        return None
-                    byte = data[p]
-                    strip = ((strip + 1) << 7) | (byte & 0x7F)
-                    p += 1
-                end = data.index(b"\0", p, p + MAX_NAME + 1)
-                if strip > len(prev) or len(prev) - strip + end - p > MAX_NAME:
-                    return None
-                name = prev[:len(prev) - strip] + data[p:end]
-                pos = end + 1
-            else:
-                end = data.index(b"\0", p, p + MAX_NAME + 1)
-                name = data[p:end]
-                pos += (p - pos + len(name) + 8) & ~7
-            if (flags & 0xFFF) not in (len(name), 0xFFF) and version != 4:
-                return None
-            if name.endswith(b"/STATE.md") or name == b"STATE.md" or FOLD:
-                out.add(fold(os.fsdecode(name)))  # only STATE.md paths are kept: a forged index cannot fill memory
-            prev = name
-        while pos + 8 <= len(data) - 20:  # extensions; a split or sparse index lists only part of the paths
-            sig, size = data[pos:pos + 4], int.from_bytes(data[pos + 4:pos + 8], "big")
-            if sig in (b"link", b"sdir"):
-                return None
-            pos += 8 + size
-    except (IndexError, ValueError):
-        return None
-    return out
-
-
-def enclosing_repo(folder: Path) -> str:
-    for d in (folder, *folder.parents):
-        if is_repo(str(d)):
-            return str(d)
-    return ""
-
-
-def tracked(found: list[Entry], root: Path, deadline: float) -> tuple[set[str], set[str]]:
-    """(STATE.md paths that git tracks, repositories whose index could not be checked).
-
-    A tracked STATE.md came with the repository, maybe from someone else. A missing index means nothing is tracked.
-    """
-    out: set[str] = set()
-    unchecked: set[str] = set()
-    outer = None
-    for gitdir in sorted({e[4] for e in found}):
-        repo = gitdir
-        if not repo:
-            outer = enclosing_repo(root) if outer is None else outer
-            repo = outer
-        if not repo:
-            continue
-        index = index_file(repo)
-        if time.monotonic() > deadline or index is None:
-            unchecked.add(gitdir)
-            continue
-        if not os.path.exists(index):
-            continue
-        try:
-            if os.path.islink(index) or not os.path.isfile(index) or os.path.getsize(index) > MAX_INDEX:
-                raise OSError
-            with open(index, "rb") as f:
-                paths = index_paths(f.read(MAX_INDEX), deadline)
-        except OSError:
-            paths = None
-        if paths is None:
-            unchecked.add(gitdir)
-            continue
-        out |= {fold(os.path.join(repo, x)) for x in paths if os.path.basename(x) == fold(STATE)}
-    return out, unchecked
-
-
-def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[list[Entry], bool, int]:
-    """STATE.md files strictly below root, breadth first.
-
-    Hidden folders, SKIP names and symlinked folders are not entered. Only a regular STATE.md file with a
-    non-empty first line counts. Each entry carries the git repository below root that holds it, so that one
-    repository cannot fill the list. A STATE.md that git tracks is dropped: it came with the repository.
-    Returns (entries, complete, number dropped as tracked).
+    Hidden folders, SKIP names and symlinked folders are not entered. Only a regular STATE.md file of yours with a
+    non-empty first line counts. Each entry carries the git repository below root that holds it (a folder with a
+    `.git`, never opened), so that one repository cannot fill the list.
     """
     found: list[Entry] = []
     deadline = time.monotonic() + budget
-    level: list[tuple[str, str, str]] = [(str(root), "", "")]
+    level: list[tuple[str, str]] = [(str(root), "")]
     entered = 0
     complete = True
     for _ in range(depth):
-        nxt: list[tuple[str, str, str]] = []
-        for folder, repo, gitdir in level:
+        nxt: list[tuple[str, str]] = []
+        for folder, repo in level:
             try:
                 entries = os.scandir(folder)  # not sorted: a huge folder is read within the budget
             except OSError:
@@ -264,9 +135,7 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
                     complete = False
                     break
                 rel = os.path.relpath(e.path, root)
-                inner = is_repo(e.path)
-                key = repo or (rel if inner else "")
-                gd = e.path if inner else gitdir
+                key = repo or (rel if is_repo(e.path) else "")
                 state = os.path.join(e.path, STATE)
                 try:
                     st = os.lstat(state)
@@ -276,27 +145,24 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
                 line = first_line(Path(state)) if regular else ""
                 if line:
                     mtime = st.st_mtime if st.st_mtime <= time.time() + 60 else 0.0  # a future date sorts last
-                    found.append((mtime, rel, line, key, gd))
-                nxt.append((e.path, key, gd))
+                    found.append((mtime, rel, line, key))
+                nxt.append((e.path, key))
             if not complete:
                 break
         level = nxt
         if not level or not complete:
             break
-    drop, unchecked = tracked(found, root, time.monotonic() + budget) if found else (set(), set())
-    kept = [e for e in found if e[4] not in unchecked and fold(os.path.join(root, e[1], STATE)) not in drop]
-    return kept, complete, len(found) - len(kept)
+    return found, complete
 
 
-def render(root: Path, found: list[Entry], complete: bool, dropped: int = 0) -> str:
+def render(root: Path, found: list[Entry], complete: bool) -> str:
     """The text a session receives; empty when no STATE.md was found and the scan was complete."""
-    if not found and complete and not dropped:
+    if not found and complete:
         return ""
     where = "~" if root == Path.home() else quote(clean(str(root)))
     if not found:
-        why = [f"{dropped} left out (tracked by git or unreadable index)"] if dropped else []
-        why += [] if complete else ["the scan was cut short (too many folders or too slow)"]
-        return f"[ctx] No STATE.md shown below {where}: " + "; ".join(why) + "."
+        return f"[ctx] No STATE.md found below {where} before the scan was cut short (too many folders or too slow)."
+
     def group(e: Entry) -> str:  # the git repository below the start folder, else the folder directly below it
         return e[3] or e[1].split(os.sep)[0]
 
@@ -330,14 +196,12 @@ def render(root: Path, found: list[Entry], complete: bool, dropped: int = 0) -> 
         out.append(f"- {quote(cap(redact(clean(rel)), 120))} ({when}): {quote(line)}")
     if hidden:
         n, k = sum(hidden.values()), len(hidden)
-        names = ", ".join(quote(cap(clean(key), 60)) for key in sorted(hidden)[:3]) + (", ..." if k > 3 else "")
+        names = ", ".join(quote(cap(redact(clean(key)), 60)) for key in sorted(hidden)[:3]) + (", ..." if k > 3 else "")
         out.append(f"(+{n} more in {names}: at most {PER_GROUP} per repository or top folder)")
     if len(kept) > len(shown):
         rest = [e for e in kept if id(e) not in chosen]
-        names = ", ".join(quote(cap(clean(e[1]), 60)) for e in rest[:5]) + (", ..." if len(rest) > 5 else "")
+        names = ", ".join(quote(cap(redact(clean(e[1])), 60)) for e in rest[:5]) + (", ..." if len(rest) > 5 else "")
         out.append(f"(+{len(rest)} older not shown: {names})")
-    if dropped:
-        out.append(f"({dropped} STATE.md not shown: tracked by git, or in a repository whose index could not be read)")
     if not complete:
         out.append("(scan cut short: some folders were not visited)")
     out.append("Details: read <folder>/STATE.md.")

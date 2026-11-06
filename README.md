@@ -6,7 +6,7 @@ Each working folder (a git repository, a course folder) holds a `STATE.md` that 
 finishes: one summary line, then Status, Next and Decisions. A rule in your `AGENTS.md` asks for it. `ctx` adds one
 thing: a session started in a parent folder (your home, a `courses/` folder) receives the first line of every
 `STATE.md` below it, so "what is blocked?" is answered without opening each folder.
-One file, Python 3.10+ standard library only, about 400 lines. It writes nothing and keeps nothing.
+One file, Python 3.10+ standard library only, about 270 lines. It writes nothing and keeps nothing.
 
 ## STATE.md
 
@@ -66,8 +66,6 @@ git config --global core.excludesFile ~/.config/git/ignore
 echo STATE.md >> ~/.config/git/ignore
 ```
 
-The hook does not show a `STATE.md` that git tracks: such a file comes with the repository, maybe from someone
-else.
 
 ## The hook (Claude Code)
 
@@ -91,20 +89,15 @@ Details: read <folder>/STATE.md.
 What the scan does: up to 4 levels below the start folder, newest first (a date in the future sorts last), 30 lines
 max, at most 8 per group (a git repository below the start folder, or, outside git, a folder directly below it). The
 lines are shared in turn between the folders directly below the start folder, newest first in each, so that what one
-of them holds (an archive, many fake repositories) cannot push the others out; the first left-out entries are named.
-It skips hidden folders, `node_modules`, virtual environments and build output, never enters a symlinked folder, and
-reads only `STATE.md` files you own. It leaves out any `STATE.md` that git tracks: ctx reads the repository's index
-file itself (following the `gitdir:` line of a worktree or submodule) and never runs git, so a hostile repository
-configuration cannot execute anything. When an index cannot be trusted (a symlinked or special `.git`, a `gitdir:`
-that leads nowhere, an unknown, split or sparse format, too large, too slow), that repository's entries are left out
-too, and the output says how many. This filter only knows git: a folder unpacked from a zip has no index, and its
-`STATE.md` files are shown like yours. Folder names and first lines are flattened to one line each, without control
-characters or known invisible characters, with common token formats, credentials in URLs, `SOME_SECRET=` and
-`password=` values, and runs of 40 or more letters and digits mixing both (full commit hashes included) replaced by
-`[redacted]`, cut to a fixed length, and shown as JSON strings. The scan checks a one-second budget at every entry
-and while reading the indexes, plus up to one second for the indexes (a hung network mount is bounded by the hook's
-5-second timeout); when it is cut short, it says so. The hook always exits 0 and prints nothing when the scan
-finished and found no `STATE.md` below.
+of them holds (a clone, an archive, many fake repositories) cannot push the others out; the first left-out entries
+are named. It skips hidden folders, `node_modules`, virtual environments and build output, never enters a symlinked
+folder, and reads only regular `STATE.md` files you own, opened without following links. It never opens `.git` and
+runs no program. Folder names and first lines are flattened to one line each, without control characters or known
+invisible characters, with known token formats, credentials in URLs and runs of 40 or more letters and digits mixing
+both (full commit hashes included) replaced by `[redacted]`, cut to a fixed length, and shown as JSON strings. The
+scan checks a one-second budget at every entry (a hung network mount is bounded by the hook's 5-second timeout);
+when it is cut short, it says so. The hook always exits 0 and prints nothing when the scan finished and found no
+`STATE.md` below.
 
 ## Why so little
 
@@ -126,23 +119,22 @@ quoted lines and the git filter); the scripts of the lite measurements are not p
 ## Limits
 
 - The hook is for Claude Code; other agents follow the rule but get no bubbling up.
-- Agents keep `STATE.md` by following a rule: nothing enforces it, nothing keeps a history, and two sessions on
-  the same folder can overwrite each other.
-- `STATE.md` is out of git, so it does not follow a repository to another machine; `git worktree remove` deletes
-  a worktree's `STATE.md` with its Decisions (each worktree keeps its own: carry what matters to the main
-  checkout first).
-- A `STATE.md` you chose to commit is hidden by the hook, like any tracked one.
-- `STATE.md` is a git-ignored file: `git clean -x` deletes it.
-- Repositories using SHA-256 object names are left out (their index format is not read).
+- Every `STATE.md` below is shown, whoever wrote it: one that came with a cloned repository, an unpacked archive
+  or a shared folder you own reads like yours. The header calls the lines quotes, not instructions, and the rule
+  tells agents to treat a `STATE.md` tracked by git as project documentation; nothing more checks where a line
+  comes from.
+- Agents keep `STATE.md` by following a rule: nothing enforces it, and two sessions on the same folder can
+  overwrite each other.
+- Decisions are protected by the rule only: an agent that rewrites the file badly, `git clean -x` (it is a
+  git-ignored file) or `git worktree remove` loses them for good (no history, no undo).
+- `STATE.md` is out of git, so it does not follow a repository to another machine; each git worktree keeps its own.
 - A monorepo with more than 8 sub-projects, or a folder outside git with more than 8 `STATE.md` files below it,
-  shows only its 8 newest. Anyone who can write in a folder below can still add `STATE.md` files that take that
-  folder's share of the lines; the first left-out entries are named.
+  shows only its 8 newest. Anyone who can write in a folder below can add `STATE.md` files that take that folder's
+  share of the lines; the first left-out entries are named.
 - Only your own files are read: a shared folder written by other users shows nothing of theirs.
+- Redaction is pattern-based and aims at known token formats: `password=hunter2` or `API_KEY=...` written as text
+  passes, and the body of `STATE.md` is not redacted. Keep secrets out of `STATE.md`, as the rule says.
 - Folders more than 4 levels below the start folder are not scanned (`~/projects/p/code/pkg/sub` from `~`).
-- Redaction is pattern-based and aims at known token formats: `password: hunter2` written as prose passes, and
-  the body of `STATE.md` is not redacted. Keep secrets out of `STATE.md`, as the rule says.
-- Decisions are protected by the rule only: an agent that rewrites the file badly, `git clean -x` or
-  `git worktree remove` loses them for good (no history, no undo).
 - Linux, macOS and WSL; Windows without WSL is untested.
 
 ## Uninstall
