@@ -70,8 +70,8 @@ Files, size caps, config and environment: [reference](docs/reference.md). Design
 
 ## Measured
 
-ctx 1.0.0 on real folders ([benchmark](docs/benchmark.md)) and 1.1.0 over 10-session chains
-([long-run benchmark](docs/benchmark-longrun.md)); 1.2.0 changes who writes the state and is being re-measured.
+10-session chains ([long-run benchmark](docs/benchmark-longrun.md), run 3), 1.1.0 -> 1.2.0: continuity 6.2 -> 8.3 /9
+(course notebooks), 5.9 -> 7.6 (small project); a lone `STATE.md` rule scores 8.5 and 8.6: ctx adds the bubbling up.
 
 ## Uninstall
 

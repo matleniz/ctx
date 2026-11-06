@@ -255,6 +255,34 @@ characters was hit in 3 course chains (7 old lines dropped, logged).
 Cost of run 2: 60 Haiku sessions 2.84 USD, 60 Sonnet judge calls 1.01 USD. The real `~/.ctx/log` did not change
 during the run (size checked before and after; no line mentions the test home).
 
+## Run 3 (ctx 1.2.0): the agent writes its state
+
+Same two scenarios, 3 chains of 10 sessions per arm, Haiku sessions, blind Sonnet judge (pickup, decisions,
+consistency, 0-3 each). Arms: ctx 1.2.0 (the agent updates its node's `CONTEXT.md`, the model rewrite is the
+fallback), ctx 1.1.0 (model rewrite only, from the v1.1.0 tag), and `STATE.md` (ctx off, a `CLAUDE.md` rule asks the
+agent to keep a `STATE.md` with Status, Next and Decisions). One `STATE.md` chain of course-notebooks stopped at
+session 7 on the budget cap (27 sessions instead of 30).
+
+| scenario | arm | continuity /9 | pickup | decisions | consistency | items done at end |
+|---|---|---|---|---|---|---|
+| course-notebooks | ctx 1.1.0 | 6.23 | 2.43 | 1.77 | 2.03 | 6.3 |
+| course-notebooks | ctx 1.2.0 | 8.33 | 2.97 | 2.90 | 2.47 | 7.7 |
+| course-notebooks | STATE.md | 8.48 | 3.00 | 2.78 | 2.70 | 6.7 |
+| small-project | ctx 1.1.0 | 5.87 | 1.20 | 2.87 | 1.80 | 2.3 |
+| small-project | ctx 1.2.0 | 7.63 | 2.60 | 2.97 | 2.07 | 7.7 |
+| small-project | STATE.md | 8.63 | 3.00 | 3.00 | 2.63 | 8.0 |
+
+- The agent wrote its own state in 53 of 54 syncs (`writer=agent`); one sync used the model.
+- 1.2.0 against 1.1.0: better on every criterion; on the small project, 7.7 items done instead of 2.3.
+- 1.2.0 against `STATE.md`: equal on course notebooks, behind on the small project (pickup 2.60 vs 3.00). A leaf
+  state kept by the agent is what matters; what ctx adds is the summary bubbling up, decisions kept by code and
+  protection against an agent erasing notes, none of which this benchmark measures.
+- Judge: the first pass did not show `CONTEXT.md` in the diff, so "I updated Status" read as a false claim; all
+  chains were re-judged with a prompt that allows a state file to be missing from the diff (the runner now shows it).
+- Cost: per session both arms used the same tokens (cache reads 23.0 M vs 20.7 M, cache writes 5.74 M vs 5.70 M,
+  output 247 k vs 268 k over the 1.2.0 and `STATE.md` arms), but the cost reported by `claude -p` was 6.06 $ vs
+  3.15 $. The gap is not explained by the token counts and is left open.
+
 ## Reproduce
 
 ```

@@ -238,7 +238,8 @@ def build_judge_prompt(scen_spec, history, rec):
         "- decisions: respects the earlier decisions that apply to this session (3 when none applies and nothing "
         "violates one; 0 = clear violation)\n"
         "- consistency: the reply and the changes do not contradict the real file state (0 = claims things that are "
-        "false per the harness state, 3 = fully consistent)\n"
+        "false per the harness state, 3 = fully consistent). A project state file (CONTEXT.md or STATE.md) "
+        "may be missing from the diff: a claim of having updated it is not a contradiction\n"
         'Reply with ONLY a JSON object: {"pickup": n, "decisions": n, "consistency": n, "comment": "one sentence"}')
 
 
@@ -405,7 +406,9 @@ def run_chain(scen, arm, rep, a, spec, budget):
                "tokens_in": ab.total_in(u), "input_tokens": u.get("input_tokens", 0),
                "cache_read": u.get("cache_read_input_tokens", 0), "cache_creation": u.get("cache_creation_input_tokens", 0),
                "tokens_out": u.get("output_tokens", 0), "reply": (j or {}).get("result", "") or "",
-               "files": files, "diff": unified(before, after, files),
+               # the judge sees the state file too: an agent that says it updated it is not lying
+               "files": files, "diff": unified(before, after, files + [
+                   k for k in ("CONTEXT.md", "STATE.md") if k not in files and before.get(k) != after.get(k)]),
                "context_md_changed_by_session": before.get("CONTEXT.md") != after.get("CONTEXT.md"),
                "check_before": cb, "check_after": ca,
                "newly_done": [i for i, v in ca.get("items", {}).items() if v and not cb.get("items", {}).get(i)],

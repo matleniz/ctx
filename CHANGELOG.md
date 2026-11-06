@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 - 2026-11-06
 
 1.2.0 in preparation. Real use showed work under containers getting lost and containers injecting noise; three
 reviews then hardened and simplified the code.
