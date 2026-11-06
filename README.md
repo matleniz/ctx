@@ -109,14 +109,25 @@ plain `STATE.md` rule scored the same within noise (continuity 8.5 and 8.6 out o
 [Measured in the 1.2.0 README](https://github.com/matleniz/ctx/blob/v1/README.md#measured) and the
 [long-run method](https://github.com/matleniz/ctx/blob/v1/docs/benchmark-longrun.md). All these figures are
 indicative: 3 chains per arm, one model (Haiku), one blind judge (Sonnet).
-An earlier wording of the rule above (without the language line and later clarifications), on the same chains
-(Haiku, 6 November 2026): continuity 8.5 and 8.8. This measures the rule only: inside the folder itself the hook
-shows nothing.
-The bubbling up is the part worth keeping. On 6 questions asked from a parent folder (18 sessions per arm), every
-arm with `STATE.md` files answers right (1.00, versus 0.27 with nothing); with the hook, a session needs 3.4 turns
-and 160k tokens on average, versus 5.9 turns and 230k without it, and 1.7 turns versus 8 for "what is blocked?".
-Precise questions about one folder gain nothing. These figures come from the first 2.0 output format (before the
-quoted lines and the turn-taking); the scripts of the lite measurements are not published yet.
+ctx 2.0 as released (this rule and hook), measured on 6 November 2026 against nothing (no rule, no hook), Haiku
+sessions, blind Sonnet judge:
+
+| case | ctx 2.0 | nothing |
+|---|---|---|
+| 10-session chains, continuity /9 (course notebooks, small project; 3 chains each) | 8.6, 8.8 | 7.3, 5.2 |
+| same, "where are we?" sessions | 6.7, 8.3 | 5.3, 3.0 |
+| same, items done after 10 sessions, out of 8 (one ctx project chain stopped at 9) | 7.3, 8.0 | 8.0, 2.0 |
+| same, tokens read per session | 491k, 504k | 461k, 524k |
+| resuming copies of 5 real course and project folders: status /3, next step /3 | 2.7, 3.0 | 1.1, 1.8 |
+| same: turns, tokens | 2.8, 199k | 6.0, 354k |
+| one short task in such a folder: task done, turns, tokens | 8/8, 6.8, 445k | 8/8, 3.3, 249k |
+| 6 questions from a parent folder: right answers, turns, tokens | 1.00, 3.6, 177k | 0.22, 7.3, 315k |
+
+The same `STATE.md` files without the hook answer the parent-folder questions as well (1.00) in 5.6 turns and 243k
+tokens: the hook saves turns, the files carry the answers. On a tree built from real `STATE.md` files, a blocker
+missing from a first line was missed: line 1 is all that goes up. Updating `STATE.md` roughly doubles the cost of a
+one-off task. Over 10 sessions the file grew to about 28 lines and 4 KB, and no chain removed a decision. Small
+samples (3 chains, 15 resumes and 8 short tasks per arm); the scripts are not published yet.
 
 ## Limits
 
