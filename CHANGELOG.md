@@ -1,19 +1,26 @@
 # Changelog
 
-## 2.0.0 - unreleased
+## 2.0.0 - 2026-11-06
 
 ctx lite. Each folder's state is a `STATE.md` written by the agent itself, asked by a rule in `AGENTS.md`; ctx is
 one file that surfaces the first line of the `STATE.md` files below the session's folder at session start.
 
+- Scan: up to 4 levels, 30 lines, at most 3 per git repository below the start folder; a `STATE.md` that is empty,
+  a symlink or not a regular file does not hide the folders under it; only folders count toward the 20000 cap;
+  a scan cut short says so even when it found nothing; dates in the future count as now.
+- Folder names and first lines are flattened to one line without control characters (a folder name with a newline
+  could forge a line); a `#` is removed only as a Markdown heading mark (`#77` stays).
+- `install` quotes the path of `ctx.py`; the hook resolves a relative `cwd`.
 - Removed: the model rewrite, `CONTEXT.md` nodes, decisions kept by code, history and undo, locks and queues, all
   commands but `hook session-start`, `tree` and `install` (which now only prints). The 1.x hooks other than
   session-start are accepted and do nothing, so an old install keeps working until it is cleaned up.
 - 1.x stays on branch `v1` (tag `v1.2.0`).
+- Community files: code of conduct, issue and pull request templates.
 
 ## 1.2.0 - 2026-11-06
 
-Last release of the full design (1.x). Real use showed work under containers getting lost and containers injecting noise; three
-reviews then hardened and simplified the code.
+Last release of the full design (1.x). Real use showed work under containers getting lost and containers
+injecting noise; three reviews then hardened and simplified the code.
 
 - A file no node takes is logged as `unrouted` (with the `ctx init` hint) instead of being dropped silently.
 - A node reports to the closest node above it that lists it, across plain folders (`tools/cli/` in its
