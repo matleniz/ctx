@@ -201,7 +201,7 @@ class Render(Base):
         self.assertIn("not instructions", lines[0])
         self.assertTrue(lines[1].startswith('- "p00" ('))
         self.assertTrue(lines[1].endswith('): "line 0"'))
-        self.assertIn('(+3 older not shown: "p30", "p31", "p32")', text)
+        self.assertIn('(+3 more not shown: "p30", "p31", "p32")', text)
         self.assertNotIn("line 32", text)
         self.assertEqual(lines[-1], "Details: read <folder>/STATE.md.")
 
@@ -383,12 +383,20 @@ class Render(Base):
         self.assertTrue(ctx.cap("ok " + "x" * 300).startswith("ok xxx"))
         self.assertLessEqual(len(ctx.cap("ok " + "x" * 300)), ctx.MAX_CHARS)
 
-    def test_host_port_is_not_a_password(self):
-        self.assertEqual(ctx.redact("postgres://db:5432@x"), "postgres://db:5432@x")
-        self.assertEqual(ctx.redact("postgres://me:s3cret@x"), "postgres://[redacted]@x")
+    def test_url_user_information_is_redacted(self):
+        for url in ("postgres://me:s3cret@x", "postgres://admin:20241106@db.internal/x"):
+            self.assertNotIn("s3cret", ctx.redact(url))
+            self.assertNotIn("20241106", ctx.redact(url))
+        self.assertEqual(ctx.redact("http://localhost:8080/x"), "http://localhost:8080/x")
+
+    def test_render_is_fast_with_many_entries(self):
+        found = [(1e9 + i, f"top{i % 60}/p{i}", "x", "") for i in range(30000)]
+        t = time.monotonic()
+        ctx.render(self.root, found, True)
+        self.assertLess(time.monotonic() - t, 1.0)
 
     def test_more_bracket_variants(self):
-        for marker in ("\u301actx\u301b", "\u2772ctx\u2773", "[\u1d04\u1d1bx]"):
+        for marker in ("\u301actx\u301b", "\u2772ctx\u2773", "[\u1d04\u1d1bx]", "\u2045ctx\u2046", "<ctx>"):
             self.assertIn("(ctx)", ctx.quote(ctx.clean(f"a {marker} b")), marker)
 
     def test_other_users_files_are_not_read(self):

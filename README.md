@@ -35,7 +35,7 @@ library only. It writes nothing, keeps nothing and runs no other program.
 ## STATE.md
 
 ```markdown
-Blocked: #59 needs a custom domain. Portfolio: PR #77 deployed, translations not reviewed. Next: review FR/IT/ES of #77.
+Blocked: #59 needs a custom domain. PR #77 deployed. Next: review FR/IT/ES of #77.
 
 ## Status
 - Done: PR #77 deployed on 27 Oct (46cbb017).
@@ -107,7 +107,7 @@ Dates are day/month, with the year when it is not the current one. What the scan
   invisible characters; known token formats, `user:password@` in URLs and runs of 40 or more letters and digits
   mixing both (full commit hashes too) become `[redacted]`; lines are capped at 200 characters and shown as JSON
   strings, with look-alikes of the `[ctx]` marker neutralized.
-- **Time:** one second, checked before each folder read and at each entry, and up to 20000 folders; both are
+- **Time:** one second, checked before each folder read and between entries, and up to 20000 folders; both are
   shared between the folders directly below the start folder. A scan cut short says so. A hung network mount is
   bounded by the hook's 5-second timeout. The hook always exits 0 and prints nothing when it found nothing.
 
