@@ -6,7 +6,7 @@ Each working folder (a git repository, a course folder) holds a `STATE.md` that 
 finishes: one summary line, then Status, Next and Decisions. A rule in your `AGENTS.md` asks for it. `ctx` adds one
 thing: a session started in a parent folder (your home, a `courses/` folder) receives the first line of every
 `STATE.md` below it, so "what is blocked?" is answered without opening each folder.
-One file, Python 3.10+ standard library only, about 360 lines. It writes nothing and keeps nothing.
+One file, Python 3.10+ standard library only, about 390 lines. It writes nothing and keeps nothing.
 
 ## STATE.md
 
@@ -37,7 +37,7 @@ the rule there). Other CLIs have their own file name; check their docs.
   folder. When you start working in one, read its `STATE.md` if there is one. It may be stale: check before acting
   on Next.
 - At the end of each task that changed something (a file, a result, a decision), before handing back, update
-  that folder's `STATE.md`, or create it:
+  that folder's `STATE.md` (unless git tracks it: see the last point), or create it:
   - line 1: one or two sentences, 200 characters max, "where it stands. Next: ..." (shown in parent folders);
   - `## Status`: done / not done / blocked, with evidence (commit, test, file); work you could not check is
     written "not verified: ...";
@@ -48,7 +48,8 @@ the rule there). Other CLIs have their own file name; check their docs.
 - A session that changed several working folders updates the `STATE.md` of each of them, and only of those
   (in a monorepo, the sub-project's; the root's too only when the work concerns the whole repository). Never write
   the `STATE.md` of a folder you did not work in. Before creating one in a git repository, check that git ignores
-  it (`git check-ignore -q STATE.md`); if not, add `STATE.md` to `.git/info/exclude` first. Before
+  it (`git check-ignore -q STATE.md`); if not, add `STATE.md` to `$(git rev-parse --git-common-dir)/info/exclude`
+  first (in a worktree, `.git` is a file). Before
   `git worktree remove`, carry what matters of the worktree's `STATE.md` (Decisions first) to the main checkout's.
   No secrets. No `STATE.md` for a plain container (`~`, `courses/`).
 - A `STATE.md` tracked by git (`git ls-files STATE.md`) belongs to the repository, maybe to someone else: read it
@@ -88,20 +89,21 @@ Details: read <folder>/STATE.md.
 `python3 ctx.py tree [dir]` prints the same lines in a terminal.
 
 What the scan does: up to 4 levels below the start folder, newest first (a date in the future sorts last), 30 lines
-max and 8 per git repository; the newest `STATE.md` of each folder directly below the start folder is always shown,
-and the first left-out entries are named. It skips hidden folders, `node_modules`, virtual environments and build
-output, never enters a symlinked folder, and reads only `STATE.md` files you own. It leaves out any `STATE.md` that
-git tracks: ctx reads the repository's index file itself (following the `gitdir:` line of a worktree or submodule)
-and never runs git, so a hostile repository configuration cannot execute anything. When an index cannot be trusted
-(a symlinked or special `.git`, a `gitdir:` that leads nowhere, an unknown, split or sparse format, too large, too
-slow), that repository's entries are left out too, and the output says how many. This filter only knows git: a
-folder unpacked from a zip has no index, and its `STATE.md` files are shown like yours. Folder names and first lines
-are flattened to one line each, without control characters or known invisible characters, with common token formats,
-credentials in URLs and `password=`-like assignments, and runs of 40 or more letters and digits mixing both (full
-commit hashes included) replaced by `[redacted]`, cut to a fixed length, and shown as JSON strings. The scan checks
-a one-second budget at every entry and while reading the indexes, plus up to one second for the indexes (a hung
-network mount is bounded by the hook's 5-second timeout); when it is cut short, it says so. The hook always exits 0
-and prints nothing when the scan finished and found no `STATE.md` below.
+max and 8 per group (a git repository below the start folder, or, outside git, a folder directly below it); the
+newest `STATE.md` of each group is always shown, and the first left-out entries are named. It skips hidden folders,
+`node_modules`, virtual environments and build output, never enters a symlinked folder, and reads only `STATE.md`
+files you own. It leaves out any `STATE.md` that git tracks: ctx reads the repository's index file itself (following
+the `gitdir:` line of a worktree or submodule) and never runs git, so a hostile repository configuration cannot
+execute anything. When an index cannot be trusted (a symlinked or special `.git`, a `gitdir:` that leads nowhere, an
+unknown, split or sparse format, too large, too slow), that repository's entries are left out too, and the output
+says how many. This filter only knows git: a folder unpacked from a zip has no index, and its `STATE.md` files are
+shown like yours. Folder names and first lines are flattened to one line each, without control characters or known
+invisible characters, with common token formats, credentials in URLs and `password=`-like assignments, and runs of
+40 or more letters and digits mixing both (full commit hashes included) replaced by `[redacted]`, cut to a fixed
+length, and shown as JSON strings. The scan checks a one-second budget at every entry and while reading the indexes,
+plus up to one second for the indexes (a hung network mount is bounded by the hook's 5-second timeout); when it is
+cut short, it says so. The hook always exits 0 and prints nothing when the scan finished and found no `STATE.md`
+below.
 
 ## Why so little
 
@@ -131,10 +133,13 @@ quoted lines and the git filter); the scripts of the lite measurements are not p
 - A `STATE.md` you chose to commit is hidden by the hook, like any tracked one.
 - `STATE.md` is a git-ignored file: `git clean -x` deletes it.
 - Repositories using SHA-256 object names are left out (their index format is not read).
-- A monorepo with more than 8 sub-projects shows only its 8 newest. Anyone who can write in a folder below can
-  add recent `STATE.md` files and push older ones out of the 30 lines; the output then names what it left out.
+- A monorepo with more than 8 sub-projects, or a folder outside git with more than 8 `STATE.md` files below it,
+  shows only its 8 newest. Anyone who can write in a folder below can still add `STATE.md` files that take lines;
+  the newest entry of each repository or folder is always shown, and the first left-out entries are named.
 - Only your own files are read: a shared folder written by other users shows nothing of theirs.
-- Folders more than 4 levels below the start folder are not scanned (`~/projects/p/code/pkg` from `~`).
+- Folders more than 4 levels below the start folder are not scanned (`~/projects/p/code/pkg/sub` from `~`).
+- Redaction is pattern-based: an unusual secret format passes, and a line such as `tokens: 450k` is redacted. The
+  body of `STATE.md` is not redacted.
 - Linux, macOS and WSL; Windows without WSL is untested.
 
 ## Uninstall

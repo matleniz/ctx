@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import sys
 import time
 from datetime import datetime
@@ -25,7 +26,8 @@ VERSION = "2.0.0"
 STATE = "STATE.md"
 MAX_DEPTH = 4          # levels below the start folder (~/projects/<p>/wt/<branch> is level 4)
 MAX_LINES = 30         # entries shown
-PER_REPO = 8           # entries shown per git repository below the start folder (a clone cannot fill the list)
+PER_GROUP = 8          # entries per git repository below the start folder, or per folder directly below it
+                       # (outside git): one clone or unpacked archive cannot fill the list
 MAX_CHARS = 200        # per first line
 BUDGET_S = 1.0         # wall-clock cap of the scan, checked between entries
 MAX_DIRS = 20000       # folders entered at most
@@ -35,12 +37,15 @@ SKIP = {"node_modules", "venv", "env", "__pycache__", "dist", "build", "target",
 HEADING = re.compile(r"^#+(\s+|$)")
 FRAME = re.compile(  # [ctx] in Latin, full-width, Cyrillic or Greek letters
     r"[\[［【〔]\s*[cｃＣсС][tｔＴтТτΤ][xｘＸхХχΧ]\s*[\]］】〕]", re.IGNORECASE)
+_B = r"(?<![A-Za-z0-9_-])"  # a token starts at a word boundary: task-scheduler is not an sk- key
 SECRET = re.compile("|".join([  # common token formats, credentials in URLs and assignments, long random runs
-    r"sk-[A-Za-z0-9_-]{16,}", r"[sr]k_(?:live|test)_[A-Za-z0-9]{10,}", r"gh[pousr]_[A-Za-z0-9]{20,}",
-    r"github_pat_[A-Za-z0-9_]{20,}", r"glpat-[A-Za-z0-9_-]{16,}", r"hf_[A-Za-z0-9]{20,}",
-    r"xox[abprs]-[A-Za-z0-9-]{10,}", r"AKIA[0-9A-Z]{16}", r"AIza[0-9A-Za-z_-]{30,}",
-    r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
-    r"(?<=://)[^/\s:@]+:[^/\s@]+(?=@)", r"(?i:(?<=password=)|(?<=passwd=)|(?<=secret=)|(?<=token=)|(?<=api_key=))\S+",
+    _B + r"sk-[A-Za-z0-9_-]{16,}", _B + r"[sr]k_(?:live|test)_[A-Za-z0-9]{10,}", _B + r"gh[pousr]_[A-Za-z0-9]{20,}",
+    _B + r"github_pat_[A-Za-z0-9_]{20,}", _B + r"glpat-[A-Za-z0-9_-]{16,}", _B + r"hf_[A-Za-z0-9]{20,}",
+    _B + r"npm_[A-Za-z0-9]{20,}", _B + r"xox[abprs]-[A-Za-z0-9-]{10,}", _B + r"AKIA[0-9A-Z]{16}",
+    _B + r"AIza[0-9A-Za-z_-]{30,}", r"hooks\.slack\.com/\S+", r"(?i:bearer)\s+[A-Za-z0-9._~+/-]{12,}=*",
+    _B + r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
+    r"(?<=://)[^/\s:@]+:[^/\s@]+(?=@)",
+    r"(?i:(?:secret|password|passwd|mot de passe|token|api[_-]?key|access[_-]?key)\w*[\"']?\s*[:=]\s*)\S+",
     r"\b(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{40,}\b"]))
 FOLD = sys.platform in ("darwin", "win32")  # case-insensitive file systems: compare paths without case
 
@@ -71,10 +76,18 @@ def cap(text: str, limit: int = MAX_CHARS) -> str:
 def first_line(path: Path) -> str:
     """First non-empty line of a STATE.md, cleaned: no Markdown heading mark, no control character, capped."""
     try:
-        with open(path, "rb") as f:
-            raw = f.read(READ_BYTES)
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
     except OSError:
         return ""
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or (UID is not None and st.st_uid != UID):
+            return ""
+        raw = os.read(fd, READ_BYTES)
+    except OSError:
+        return ""
+    finally:
+        os.close(fd)
     text = raw.decode("utf-8", errors="replace").lstrip("﻿")
     for line in text.splitlines():
         line = clean(HEADING.sub("", line.strip()))
@@ -150,7 +163,8 @@ def index_paths(data: bytes, deadline: float = float("inf")) -> set[str] | None:
                 pos += (p - pos + len(name) + 8) & ~7
             if (flags & 0xFFF) not in (len(name), 0xFFF) and version != 4:
                 return None
-            out.add(fold(os.fsdecode(name)))
+            if name.endswith(b"/STATE.md") or name == b"STATE.md" or FOLD:
+                out.add(fold(os.fsdecode(name)))  # only STATE.md paths are kept: a forged index cannot fill memory
             prev = name
         while pos + 8 <= len(data) - 20:  # extensions; a split or sparse index lists only part of the paths
             sig, size = data[pos:pos + 4], int.from_bytes(data[pos + 4:pos + 8], "big")
@@ -247,7 +261,7 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
                 state = os.path.join(e.path, STATE)
                 try:
                     st = os.lstat(state)
-                    regular = os.path.isfile(state) and not os.path.islink(state) and st.st_uid == UID
+                    regular = os.path.isfile(state) and not os.path.islink(state) and UID in (None, st.st_uid)
                 except OSError:
                     regular = False
                 line = first_line(Path(state)) if regular else ""
@@ -274,19 +288,22 @@ def render(root: Path, found: list[Entry], complete: bool, dropped: int = 0) -> 
         why = [f"{dropped} left out (tracked by git or unreadable index)"] if dropped else []
         why += [] if complete else ["the scan was cut short (too many folders or too slow)"]
         return f"[ctx] No STATE.md shown below {where}: " + "; ".join(why) + "."
-    per_repo: dict[str, int] = {}
+    def group(e: Entry) -> str:  # the git repository below the start folder, else the folder directly below it
+        return e[3] or e[1].split(os.sep)[0]
+
+    per_group: dict[str, int] = {}
     kept: list[Entry] = []
     hidden: dict[str, int] = {}
     for entry in sorted(found, key=lambda t: (-t[0], t[1])):
-        key = entry[3]
-        if key and per_repo.get(key, 0) >= PER_REPO:
+        key = group(entry)
+        if per_group.get(key, 0) >= PER_GROUP:
             hidden[key] = hidden.get(key, 0) + 1
             continue
-        per_repo[key] = per_repo.get(key, 0) + 1
+        per_group[key] = per_group.get(key, 0) + 1
         kept.append(entry)
-    first: dict[str, Entry] = {}  # newest entry of each folder directly below: one folder cannot evict the others
+    first: dict[str, Entry] = {}  # newest entry of each group: one repository or folder cannot evict the others
     for e in kept:
-        first.setdefault(e[1].split(os.sep)[0], e)
+        first.setdefault(group(e), e)
     reserved = list(first.values())[:MAX_LINES]
     rest = [e for e in kept if e not in reserved]
     chosen = set(map(id, reserved + rest[:MAX_LINES - len(reserved)]))
@@ -300,7 +317,7 @@ def render(root: Path, found: list[Entry], complete: bool, dropped: int = 0) -> 
     if hidden:
         n, k = sum(hidden.values()), len(hidden)
         names = ", ".join(quote(cap(clean(key), 60)) for key in sorted(hidden)[:3]) + (", ..." if k > 3 else "")
-        out.append(f"(+{n} more in {names}: at most {PER_REPO} per repository)")
+        out.append(f"(+{n} more in {names}: at most {PER_GROUP} per repository or top folder)")
     if len(kept) > len(shown):
         rest = [e for e in kept if id(e) not in chosen]
         names = ", ".join(quote(cap(clean(e[1]), 60)) for e in rest[:5]) + (", ..." if len(rest) > 5 else "")
