@@ -52,7 +52,7 @@ SECRET = re.compile("|".join([  # known token formats, credentials in URLs, long
     r"(?i:bearer)\s+(?=(?:[^0-9\s]*[0-9]){3})(?=\S*[A-Z])[A-Za-z0-9._~+/-]{20,}=*",
     _B + r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     # user:password@host: the password runs to the last @ before the host, so it may hold / or @
-    r"(?<=://)[^/\s:@]*:\S*?(?=@[^\s/@]*(?:[/?#\s]|$))",
+    r"(?<=://)[^/\s:@]*:(?![0-9]+[/?#])\S*?(?=@[^\s/@]*(?:[/?#\s]|$))",  # host:port/path@x is not a password
     r"(?i:(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|token|api[_-]?key)\s*[:=]\s*(?=\S*[0-9])(?=\S*[A-Za-z])\S{6,})",  # password: x1y2z3
     # 40 base64 characters with all three classes (an AWS secret key), bounded so a longer path is not cut
     r"(?<![A-Za-z0-9/+._-])(?=[A-Za-z0-9/+]*[0-9])(?=[A-Za-z0-9/+]*[a-z])(?=[A-Za-z0-9/+]*[A-Z])"

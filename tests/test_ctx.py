@@ -679,7 +679,8 @@ class Hardening(Base):
                            ("postgres://admin:p@ssw0rd-secret@db.internal/x", "ssw0rd"),
                            ("password: Hunter2Hunter2", "Hunter2"), ("api_key=3f2a9c8d1e2f3a4b", "3f2a")]:
             self.assertNotIn(gone, ctx.redact(text), text)
-        for text in ("Token : budget 160k", "see https://host:443/a/b and me@example.com",
+        for text in ("Token : budget 160k", "see https://host:443/a/b and me@example.com", "https://h:80/x@y",
+                     "http://localhost:3000/@scope/pkg",
                      "packages/effets/src/components/Header/index.ts", "git@github.com:foo/bar.git"):
             self.assertEqual(ctx.redact(text), text)
 
