@@ -714,7 +714,7 @@ class Hardening204(Base):
 
     def test_look_alikes_kept(self):
         for text in ("task-sk-AbcDef123GhiJkl456Mno", "Token : budget 160k", "secret: rotate by 2026",
-                     "sortKey=asc", "monkey=banana12", "pwd=ab12"):
+                     "sortKey=asc", "monkey=banana12", "pwd=ab12", "cacheKey=user42a"):
             self.assertEqual(ctx.redact(text), text)
 
     def test_tags_cannot_be_closed(self):

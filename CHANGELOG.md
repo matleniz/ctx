@@ -8,7 +8,7 @@ Second adversarial review round on 2.0.3.
   context in (`</system-reminder>` came out verbatim). The footer reads "Details: read STATE.md in the folder."
 - A `STATE.md` with more than one name (a hard link, which could be any file of yours) is not read.
 - Redaction: runs of 40 letters and digits after `_` (`gsk_...`, `dop_v1_...`), `r8_` keys, camelCase names
-  (`clientSecret=`, `apiToken:`, `accessKey=`), `mot de passe` and `mdp`.
+  (`clientSecret=`, `apiToken:`; `accessKey=`, not any `...Key=`), `mot de passe` and `mdp`.
 - A scan stopped by the folder cap is complete when the folders left have no sub-folder.
 - `install` explains the merge for each case (no file, no `hooks`, no `SessionStart`, a list already there) and
   warns that a second `hooks` key silently drops the first.

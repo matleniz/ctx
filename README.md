@@ -110,7 +110,7 @@ Dates are day/month, with the year when it is not the current one. What the scan
   fake repositories in one of them cannot push the others out. Left-out entries are counted and the first are named.
 - **Cleaning:** folder names and lines are normalized (NFKC) and flattened to one line, without control or known
   invisible characters; known token formats, `user:password@` in URLs, `password:`, `token=`, `api_key=`,
-  `clientSecret=` or `mot de passe :` followed by letters and digits, 40-character base64 keys and runs of 40 or
+  `clientSecret=`, `accessKey=` or `mot de passe :` followed by letters and digits, 40-character base64 keys and runs of 40 or
   more letters and digits mixing both (full commit hashes too, also after `_`) become `[redacted]`; lines are capped
   at 200 characters as written (normalization may add up to 20, `…` becoming `...`) and shown as JSON strings, with
   `<` and `>` escaped (no tag can be closed) and look-alikes of the `[ctx]` marker neutralized.
@@ -142,6 +142,7 @@ method and the cases where ctx did worse: [docs/measures.md](docs/measures.md).
   `git worktree remove` loses them for good (no history, no undo). `STATE.md` does not follow a repository to
   another machine.
 - Only your own files are read: a shared folder written by other users shows nothing of theirs.
+  A `STATE.md` with several names (a hard link, as some backup tools make) is skipped too.
 - Redaction is pattern-based: `password=hunter` (no digit), a secret under another name or in another shape
   passes, and the body of `STATE.md` is not redacted. Keep secrets out of `STATE.md`, as the rule says.
 - Many sibling folders with a `STATE.md` (an unpacked archive) take turns with your folders and can push older
