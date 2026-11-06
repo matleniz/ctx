@@ -2,7 +2,7 @@
 
 ## 1.2.0 - 2026-11-06
 
-1.2.0 in preparation. Real use showed work under containers getting lost and containers injecting noise; three
+Last release of the full design (1.x). Real use showed work under containers getting lost and containers injecting noise; three
 reviews then hardened and simplified the code.
 
 - A file no node takes is logged as `unrouted` (with the `ctx init` hint) instead of being dropped silently.
