@@ -73,7 +73,7 @@ Details: read <folder>/STATE.md.
 
 `python3 ctx.py tree [dir]` prints the same lines in a terminal.
 
-What the scan does: up to 4 levels below the start folder, newest first, 30 lines max and 3 per git repository
+What the scan does: up to 4 levels below the start folder, newest first, 30 lines max and 8 per git repository
 (a cloned repository full of `STATE.md` files cannot push yours out). It skips hidden folders, `node_modules`,
 virtual environments and build output, never follows a symlink, and does not go below a folder whose `STATE.md`
 has a first line. Folder names and first lines are flattened to one line each, without control characters. The
@@ -98,6 +98,8 @@ Precise questions about one folder gain nothing. The scripts of these two lite m
 - Agents keep `STATE.md` by following a rule: nothing enforces it, nothing keeps a history, and two sessions on
   the same folder can overwrite each other.
 - `STATE.md` is out of git, so it does not follow a repository to another machine or survive a deleted worktree.
+- The per-repository cap needs a `.git`: an unpacked archive full of `STATE.md` files can still fill the list, and
+  a monorepo with more than 8 sub-projects shows only its 8 newest.
 - Linux, macOS and WSL; Windows without WSL is untested.
 
 ## Uninstall

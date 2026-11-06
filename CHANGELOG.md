@@ -5,7 +5,7 @@
 ctx lite. Each folder's state is a `STATE.md` written by the agent itself, asked by a rule in `AGENTS.md`; ctx is
 one file that surfaces the first line of the `STATE.md` files below the session's folder at session start.
 
-- Scan: up to 4 levels, 30 lines, at most 3 per git repository below the start folder; a `STATE.md` that is empty,
+- Scan: up to 4 levels, 30 lines, at most 8 per git repository below the start folder; a `STATE.md` that is empty,
   a symlink or not a regular file does not hide the folders under it; only folders count toward the 20000 cap;
   a scan cut short says so even when it found nothing; dates in the future count as now.
 - Folder names and first lines are flattened to one line without control characters (a folder name with a newline

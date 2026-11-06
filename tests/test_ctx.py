@@ -220,7 +220,23 @@ class Render(Base):
         text = ctx.render(self.root, *ctx.scan(self.root))
         self.assertIn("- mine (", text)
         self.assertEqual(text.count("spam"), ctx.PER_REPO)
-        self.assertIn(f"(+{35 - ctx.PER_REPO} more in clone, at most {ctx.PER_REPO} per repository)", text)
+        self.assertIn(f"(+{35 - ctx.PER_REPO} more in 1 repository (clone), at most {ctx.PER_REPO} each)", text)
+
+    def test_hidden_notice_is_one_line(self):
+        now = time.time()
+        for r in range(60):
+            (self.root / f"r{r:02d}" / ".git").mkdir(parents=True)
+            for i in range(ctx.PER_REPO + 1):
+                self.state(f"r{r:02d}/p{i}", f"x {r} {i}", mtime=now - r)
+        lines = ctx.render(self.root, *ctx.scan(self.root)).splitlines()
+        self.assertEqual(sum("more in" in ln for ln in lines), 1)
+        self.assertLessEqual(len(lines), ctx.MAX_LINES + 4)
+
+    def test_git_file_marks_a_repository(self):
+        (self.root / "wt").mkdir()
+        (self.root / "wt" / ".git").write_text("gitdir: /elsewhere\n")
+        self.state("wt/a")
+        self.assertEqual([e[3] for e in ctx.scan(self.root)[0]], ["wt"])
 
     def test_non_utf8_folder_name(self):
         name = os.fsdecode(b"caf\xe9")
