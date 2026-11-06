@@ -408,6 +408,26 @@ class Render(Base):
     def test_url_password_without_user(self):
         self.assertNotIn("p4ss", ctx.redact("redis://:p4ss@cache"))
 
+    def test_slow_visits_respect_the_budget(self):
+        for i in range(400):
+            (self.root / "big" / f"d{i:03d}").mkdir(parents=True)
+        real = ctx.first_line
+
+        def slow(path):
+            time.sleep(0.005)
+            return real(path)
+        with mock.patch.object(ctx, "first_line", slow):
+            t = time.monotonic()
+            _, complete = ctx.scan(self.root, budget=0.2)
+            self.assertLess(time.monotonic() - t, 0.5)
+        self.assertFalse(complete)
+
+    def test_tree_under_the_cap_is_complete(self):
+        for i in range(150):
+            (self.root / "a" / f"d{i:03d}").mkdir(parents=True)
+        with mock.patch.object(ctx, "MAX_DIRS", 152):
+            self.assertTrue(ctx.scan(self.root)[1])
+
     def test_render_is_fast_with_many_entries(self):
         found = [(1e9 + i, f"top{i % 60}/p{i}", "x", "") for i in range(30000)]
         t = time.monotonic()

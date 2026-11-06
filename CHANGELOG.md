@@ -4,8 +4,10 @@
 
 - The 200-character cap holds: text is normalized (NFKC) before redaction and capping, so expanding characters no
   longer grow a line past it, and full-width tokens are redacted.
-- One folder cannot starve the others: the folders directly below the start folder are walked in turns, each with
-  its share of the time and of the 20000-folder cap; the time budget is checked before each folder read.
+- One folder cannot starve the others: the folders directly below the start folder are walked in turns, one
+  folder read each per round; a read that would pass the 20000-folder cap takes half of what is left; the time
+  budget is checked before each folder read and at each folder visited (15000 slow folders took 41 s in 2.0.1, so
+  the hook timed out; now 1 s).
 - Outside git, entries are grouped one or two levels below the start folder (`projects/<p>`), so twelve projects
   without a repository at their root are all shown.
 - An epoch date is a date (no longer "future date"); a front matter block is skipped; capping keeps the text when

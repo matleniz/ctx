@@ -120,8 +120,8 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
     """STATE.md files strictly below root. Returns (entries, complete).
 
     Each folder directly below root is walked breadth first, and the walks take turns, one folder read at a time;
-    one read takes at most half of what is left of MAX_DIRS: a folder full of sub-folders cannot use up the time or
-    the cap of the others, and an ordinary tree is read in full.
+    a read that would pass MAX_DIRS takes half of what is left: a folder full of sub-folders cannot use up the time
+    or the cap of the others, and a tree under the cap is read in full.
     Hidden folders, SKIP names and symlinked folders are not entered. Each entry carries the git repository below
     root that holds it (a folder with a `.git`, never opened).
     """
@@ -178,11 +178,14 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
             if level >= depth:
                 continue
             subs = subdirs(path)
-            room = max(1, (MAX_DIRS - total) // 2)  # one read takes at most half of what is left of the cap
-            if len(subs) > room:
-                subs, complete = subs[:room], False
-            total += len(subs)
-            w.extend((e.path, level + 1, visit(e, repo)) for e in subs)
+            if total + len(subs) > MAX_DIRS:  # a read that would pass the cap takes half of what is left
+                subs, complete = subs[:max(1, (MAX_DIRS - total) // 2)], False
+            for e in subs:
+                if time.monotonic() > deadline:  # each visit opens a file: slow mounts are checked here too
+                    complete = False
+                    break
+                total += 1
+                w.append((e.path, level + 1, visit(e, repo)))
     if any(walks):
         complete = False
     return found, complete
