@@ -19,6 +19,7 @@ import shlex
 import stat
 import sys
 import time
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -36,14 +37,16 @@ UID = os.getuid() if hasattr(os, "getuid") else None  # only your own STATE.md f
 SKIP = {"node_modules", "venv", "env", "__pycache__", "dist", "build", "target", "site-packages"}
 HEADING = re.compile(r"^#+(\s+|$)")
 FRAME = re.compile(  # [ctx] in Latin, full-width, Cyrillic or Greek letters
-    r"[\[［【〔]\s*[cｃＣсС][tｔＴтТτΤ][xｘＸхХχΧ]\s*[\]］】〕]", re.IGNORECASE)
+    r"[\[［【〔⟦]\s*[cｃＣсС][tｔＴтТτΤ][xｘＸхХχΧ]\s*[\]］】〕⟧]", re.IGNORECASE)
 _B = r"(?<![A-Za-z0-9_-])"  # a token starts at a word boundary: task-scheduler is not an sk- key
 SECRET = re.compile("|".join([  # known token formats, credentials in URLs, long random runs
-    _B + r"sk-[A-Za-z0-9_-]{16,}", _B + r"[sr]k_(?:live|test)_[A-Za-z0-9]{10,}", _B + r"gh[pousr]_[A-Za-z0-9]{20,}",
+    # sk- and bearer values need 3 digits and a capital: real keys have both, branch names do not
+    _B + r"sk-(?=(?:[^0-9\s]*[0-9]){3})(?=\S*[A-Z])[A-Za-z0-9_-]{20,}",
+    _B + r"[sr]k_(?:live|test)_[A-Za-z0-9]{10,}", _B + r"gh[pousr]_[A-Za-z0-9]{20,}",
     _B + r"github_pat_[A-Za-z0-9_]{20,}", _B + r"glpat-[A-Za-z0-9_-]{16,}", _B + r"hf_[A-Za-z0-9]{20,}",
     _B + r"npm_[A-Za-z0-9]{20,}", _B + r"xox[abprs]-[A-Za-z0-9-]{10,}", _B + r"AKIA[0-9A-Z]{16}",
     _B + r"AIza[0-9A-Za-z_-]{30,}", r"hooks\.slack\.com/\S+",
-    r"(?i:bearer)\s+(?=[A-Za-z._~+/-]*[0-9])[A-Za-z0-9._~+/-]{16,}=*",
+    r"(?i:bearer)\s+(?=(?:[^0-9\s]*[0-9]){3})(?=\S*[A-Z])[A-Za-z0-9._~+/-]{20,}=*",
     _B + r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     r"(?<=://)[^/\s:@]+:[^/\s@]+(?=@)",
     r"\b(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{40,}\b"]))
@@ -61,7 +64,7 @@ def clean(text: str) -> str:
 
 def quote(text: str) -> str:
     """A JSON string: quotes inside are escaped, and the frame marker cannot appear verbatim."""
-    return json.dumps(FRAME.sub("(ctx)", text), ensure_ascii=False)
+    return json.dumps(FRAME.sub("(ctx)", unicodedata.normalize("NFKC", text)), ensure_ascii=False)
 
 
 def cap(text: str, limit: int = MAX_CHARS) -> str:
@@ -155,6 +158,14 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
     return found, complete
 
 
+def _by(entries: list[Entry], levels: int) -> dict[str, list[Entry]]:
+    """Entries grouped by the first `levels` parts of their path, in order (newest group first)."""
+    out: dict[str, list[Entry]] = {}
+    for e in entries:
+        out.setdefault(os.sep.join(e[1].split(os.sep)[:levels]), []).append(e)
+    return out
+
+
 def render(root: Path, found: list[Entry], complete: bool) -> str:
     """The text a session receives; empty when no STATE.md was found and the scan was complete."""
     if not found and complete:
@@ -179,8 +190,9 @@ def render(root: Path, found: list[Entry], complete: bool) -> str:
     # Round robin over the folders directly below the start folder, newest first in each: whatever one of them
     # holds (an archive, fake repositories), every other folder still gets its share of the lines.
     queues: dict[str, list[Entry]] = {}
-    for e in kept:
-        queues.setdefault(e[1].split(os.sep)[0], []).append(e)
+    for top, entries in _by(kept, 1).items():  # inside each, the same turn between its own sub-folders
+        subs = list(_by(entries, 2).values())
+        queues[top] = [e for i in range(max(map(len, subs))) for sub in subs if i < len(sub) for e in [sub[i]]]
     chosen: set[int] = set()
     while len(chosen) < min(MAX_LINES, len(kept)):
         for q in queues.values():
