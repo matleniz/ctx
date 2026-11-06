@@ -38,7 +38,8 @@ the rule there). Other CLIs have their own file name; check their docs.
   one. It may be stale: check before acting on Next.
 - At the end of each task that changed something (a file, a result, a decision), before handing back, update
   that folder's `STATE.md` (unless git tracks it: see the last point), or create it:
-  - line 1: one or two sentences, 200 characters max, "where it stands. Next: ..." (shown in parent folders);
+  - line 1: one or two sentences, 200 characters max, "where it stands. Next: ...", with any blocker (it is the
+    only line shown in parent folders);
   - `## Status`: done / not done / blocked, with evidence (commit, test, file); work you could not check is
     written "not verified: ...";
   - `## Next`: the next unfinished task, never "re-check";
