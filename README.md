@@ -44,6 +44,8 @@ the rule there). Other CLIs have their own file name; check their docs.
     written "not verified: ...";
   - `## Next`: the next unfinished task, never "re-check";
   - `## Decisions`: add only new decisions, dated, with their reason; never remove earlier ones.
+- Update `STATE.md` only when Status, Next or Decisions change; an edit that leaves the folder's state as it
+  was (typo, comment, docstring, formatting) does not need it.
 - Write `STATE.md` in the folder's language (that of its README, code or course material), English by default; 40
   lines max outside Decisions: summarize the old Status rather than pile up (Decisions are kept whole).
 - A session that changed several working folders updates the `STATE.md` of each of them, and only of those
@@ -126,9 +128,11 @@ sessions, blind Sonnet judge:
 
 The same `STATE.md` files without the hook answer the parent-folder questions as well (1.00) in 5.6 turns and 243k
 tokens: the hook saves turns, the files carry the answers. On a tree built from real `STATE.md` files, a blocker
-missing from a first line was missed: line 1 is all that goes up. Updating `STATE.md` roughly doubles the cost of a
-one-off task. Over 10 sessions the file grew to about 28 lines and 4 KB, and no chain removed a decision. Small
-samples (3 chains, 15 resumes and 8 short tasks per arm); the scripts are not published yet.
+missing from a first line was missed: line 1 is all that goes up. Updating `STATE.md` roughly doubled the cost of a
+one-off task in 2.0.0; with the 2.0.1 line of the rule, 6 of 6 pure touch-ups (typo, docstring, one README line)
+left it alone, while 8 of 8 state-changing tasks (a decision, a new deadline, progress) still recorded it. Over 10
+sessions the file grew to about 28 lines and 4 KB, and no chain removed a decision. Small samples (3 chains, 15
+resumes and 8 short tasks per arm); the scripts are not published yet.
 
 ## Limits
 

@@ -23,7 +23,7 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 STATE = "STATE.md"
 MAX_DEPTH = 4          # levels below the start folder (~/projects/<p>/wt/<branch> is level 4)
 MAX_LINES = 30         # entries shown

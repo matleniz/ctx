@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.1 - 2026-11-06
+
+- Rule: update `STATE.md` only when Status, Next or Decisions change; a touch-up (typo, comment, docstring,
+  formatting) does not need it. Measured on copies of real folders: 6 of 6 touch-ups left `STATE.md` alone (2.0.0:
+  updated almost every time, at about twice the tokens of no rule), 8 of 8 state-changing tasks still updated it.
+- Rule: line 1 names any blocker, since it is the only line shown in parent folders.
+
 ## 2.0.0 - 2026-11-06
 
 ctx lite. Each folder's state is a `STATE.md` written by the agent itself, asked by a rule in `AGENTS.md`; ctx is
