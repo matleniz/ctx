@@ -142,7 +142,8 @@ def render(root: Path, found: list[Entry], complete: bool) -> str:
     if hidden:
         n, k = sum(hidden.values()), len(hidden)
         names = ", ".join(clean(key) for key in sorted(hidden)[:3]) + (", ..." if k > 3 else "")
-        out.append(f"(+{n} more in {k} {'repository' if k == 1 else 'repositories'} ({names}), at most {PER_REPO} each)")
+        repos = "repository" if k == 1 else "repositories"
+        out.append(f"(+{n} more in {k} {repos} ({names}), at most {PER_REPO} each)")
     if len(kept) > len(shown):
         out.append(f"(+{len(kept) - len(shown)} more, oldest omitted)")
     if not complete:
