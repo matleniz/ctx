@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0 - unreleased
+
+ctx lite. Each folder's state is a `STATE.md` written by the agent itself, asked by a rule in `AGENTS.md`; ctx is
+one file that surfaces the first line of the `STATE.md` files below the session's folder at session start.
+
+- Removed: the model rewrite, `CONTEXT.md` nodes, decisions kept by code, history and undo, locks and queues, all
+  commands but `hook session-start`, `tree` and `install` (which now only prints). The 1.x hooks other than
+  session-start are accepted and do nothing, so an old install keeps working until it is cleaned up.
+- 1.x stays on branch `v1` (tag `v1.2.0`).
+
 ## 1.2.0 - 2026-11-06
 
 Last release of the full design (1.x). Real use showed work under containers getting lost and containers injecting noise; three

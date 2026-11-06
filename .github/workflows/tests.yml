@@ -7,22 +7,13 @@ on:
 
 jobs:
   unittest:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
-        # macOS minutes cost 10x: macOS runs on pushes to main only, pull requests run Ubuntu only.
-        # (A job-level `if:` cannot read `matrix`, so the OS list itself depends on the event.)
-        os: ${{ github.event_name == 'push' && fromJSON('["ubuntu-latest", "macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
         python: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Install pyflakes (so tests/test_style.py runs its pyflakes check)
-        run: python -m pip install pyflakes
-      - name: Unit tests (offline; tests/integration is not run)
-        run: python -m unittest discover -s tests -v
-      - name: Benchmark harness, pure parts (offline; no model call)
-        run: python -m unittest discover -s bench -v
+      - run: python -m unittest discover -s tests -v
