@@ -6,7 +6,7 @@ Each working folder (a git repository, a course folder) holds a `STATE.md` that 
 finishes: one summary line, then Status, Next and Decisions. A rule in your `AGENTS.md` asks for it. `ctx` adds one
 thing: a session started in a parent folder (your home, a `courses/` folder) receives the first line of every
 `STATE.md` below it, so "what is blocked?" is answered without opening each folder.
-One file, Python 3.10+ standard library only, about 200 lines. It writes nothing and keeps nothing.
+One file, Python 3.10+ standard library only, about 250 lines. It writes nothing and keeps nothing.
 
 ## STATE.md
 
