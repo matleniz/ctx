@@ -25,7 +25,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-VERSION = "2.0.3"
+VERSION = "2.0.4"
 STATE = "STATE.md"
 MAX_DEPTH = 4          # levels below the start folder (~/projects/<p>/wt/<branch> is level 4)
 MAX_LINES = 30         # entries shown
@@ -47,17 +47,21 @@ SECRET = re.compile("|".join([  # known token formats, credentials in URLs, long
     _B + r"sk-(?=(?:[^0-9\s]*[0-9]){3})(?=\S*[A-Z])[A-Za-z0-9_-]{20,}",
     _B + r"[sr]k_(?:live|test)_[A-Za-z0-9]{10,}", _B + r"gh[pousr]_[A-Za-z0-9]{20,}",
     _B + r"github_pat_[A-Za-z0-9_]{20,}", _B + r"glpat-[A-Za-z0-9_-]{16,}", _B + r"hf_[A-Za-z0-9]{20,}",
-    _B + r"npm_[A-Za-z0-9]{20,}", _B + r"xox[abprs]-[A-Za-z0-9-]{10,}", _B + r"AKIA[0-9A-Z]{16}",
+    _B + r"npm_[A-Za-z0-9]{20,}", _B + r"r8_[A-Za-z0-9]{30,}", _B + r"xox[abprs]-[A-Za-z0-9-]{10,}",
+    _B + r"AKIA[0-9A-Z]{16}",
     _B + r"AIza[0-9A-Za-z_-]{30,}", r"hooks\.slack\.com/\S+",
     r"(?i:bearer)\s+(?=(?:[^0-9\s]*[0-9]){3})(?=\S*[A-Z])[A-Za-z0-9._~+/-]{20,}=*",
     _B + r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     # user:password@host: the password runs to the last @ before the host, so it may hold / or @
     r"(?<=://)[^/\s:@]*:(?![0-9]+[/?#])\S*?(?=@[^\s/@]*(?:[/?#\s]|$))",  # host:port/path@x is not a password
-    r"(?i:(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|token|api[_-]?key)\s*[:=]\s*(?=\S*[0-9])(?=\S*[A-Za-z])\S{6,})",  # password: x1y2z3
+    # password: x1y2z3, also camelCase (clientSecret=, apiKey=); the value needs letters and digits
+    r"(?:(?<![A-Za-z0-9])(?i:password|passwd|pwd|secret|token|api[_-]?key|mot\s+de\s+passe|mdp)"
+    r"|(?<=[a-z0-9])(?:Password|Passwd|Pwd|Secret|Token|Key))\s*[:=]\s*(?=\S*[0-9])(?=\S*[A-Za-z])\S{6,}",
     # 40 base64 characters with all three classes (an AWS secret key), bounded so a longer path is not cut
     r"(?<![A-Za-z0-9/+._-])(?=[A-Za-z0-9/+]*[0-9])(?=[A-Za-z0-9/+]*[a-z])(?=[A-Za-z0-9/+]*[A-Z])"
     r"[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+._=-])",
-    r"\b(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{40,}\b"]))
+    # runs of 40+ letters and digits, also after an underscore (gsk_..., dop_v1_...)
+    r"(?<![A-Za-z0-9])(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{40,}(?![A-Za-z0-9])"]))
 
 Entry = tuple[float, str, str, str]  # (mtime, relative path, first line, repository key or "")
 INVISIBLE = set(range(0xFE00, 0xFE10)) | set(range(0xE0100, 0xE01F0)) | {
@@ -74,8 +78,9 @@ def clean(text: str, normalize: bool = True) -> str:
 
 
 def quote(text: str) -> str:
-    """A JSON string: quotes inside are escaped, and the frame marker cannot appear verbatim."""
-    return json.dumps(FRAME.sub("(ctx)", text), ensure_ascii=False)
+    """A JSON string: quotes inside are escaped, the frame marker cannot appear verbatim, and neither can < or >
+    (a closing tag would seem to end the block the host wraps the text in)."""
+    return json.dumps(FRAME.sub("(ctx)", text), ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
 
 
 def cap(text: str, limit: int = MAX_CHARS) -> str:
@@ -103,7 +108,8 @@ def first_line(path: str) -> tuple[str, float] | None:
         return None
     try:
         st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or UID not in (None, st.st_uid):
+        # a regular file of yours with one name: a hard link could be any file (a .env) under the name STATE.md
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink > 1 or UID not in (None, st.st_uid):
             return None
         raw = os.read(fd, READ_BYTES)
     except OSError:
@@ -198,8 +204,13 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
                     break
                 total += 1
                 w.append((e.path, level + 1, visit(e, repo)))
-    if any(level < depth for w in walks for _, level, _ in w):  # folders left unread (the last level is not read)
-        complete = False
+    # Folders left in the queues were visited but not read (the last level is never read). Stopped by the cap,
+    # the scan is still complete when none of them has a sub-folder; the reads stop at the first one found.
+    for path, level, _ in (x for w in walks for x in w):
+        if not complete:
+            break
+        if level < depth and subdirs(path):
+            complete = False
     return found, complete
 
 
@@ -269,7 +280,7 @@ def render(root: Path, found: list[Entry], complete: bool) -> str:
         out.append(f"(+{len(rest)} more not shown: " + ", ".join(names) + (", ...)" if len(rest) > 5 else ")"))
     if not complete:
         out.append("(scan cut short: some folders were not visited)")
-    out.append("Details: read <folder>/STATE.md.")
+    out.append("Details: read STATE.md in the folder.")
     return "\n".join(out)
 
 
@@ -320,8 +331,13 @@ def main(argv: list[str]) -> int:
         print(text or f"No {STATE} below {root}.")
         return 0
     if cmd == "install":
-        print("Merge this into ~/.claude/settings.json (ctx writes nothing). Without that file, save the block as it")
-        print("is; if it already has hooks.SessionStart, append the object inside the list below to that list:")
+        print("Merge this into ~/.claude/settings.json (ctx writes nothing):")
+        print("- no such file: mkdir -p ~/.claude, then save the block as it is;")
+        print('- a file without "hooks": add the "hooks" key below next to its other keys;')
+        print('- "hooks" without "SessionStart": add the "SessionStart" key inside that "hooks" object;')
+        print('- "SessionStart" already there: append the {"hooks": [...]} element of the list below to that list.')
+        print("Never write a second \"hooks\" key: the last one wins and the others are lost without an error.")
+        print("Check with: python3 -m json.tool ~/.claude/settings.json")
         print(install_block())
         return 0
     print(f"ctx: unknown command {cmd!r} (see --help)", file=sys.stderr)

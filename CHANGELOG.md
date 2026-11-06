@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.0.4 - 2026-11-06
+
+Second adversarial review round on 2.0.3.
+
+- `<` and `>` are escaped in every quoted string: a `STATE.md` line can no longer close the tag a host wraps the
+  context in (`</system-reminder>` came out verbatim). The footer reads "Details: read STATE.md in the folder."
+- A `STATE.md` with more than one name (a hard link, which could be any file of yours) is not read.
+- Redaction: runs of 40 letters and digits after `_` (`gsk_...`, `dop_v1_...`), `r8_` keys, camelCase names
+  (`clientSecret=`, `apiToken:`, `accessKey=`), `mot de passe` and `mdp`.
+- A scan stopped by the folder cap is complete when the folders left have no sub-folder.
+- `install` explains the merge for each case (no file, no `hooks`, no `SessionStart`, a list already there) and
+  warns that a second `hooks` key silently drops the first.
+- Tests: 101, one example per secret pattern, secrets straddling the 60- and 120-character caps of names, notices,
+  hard link, tag escape, quoted interpreter; tests that are not about time no longer depend on the real one-second
+  budget, and the fake clock patches ctx only.
+- Rule: shorten line 1 rather than cut it; "Waiting: ..." when the next step waits on a person or an answer; no
+  `STATE.md` created after only reading a folder. README: the price of the rule in tokens and in the course chain.
+
 ## 2.0.3 - 2026-11-06
 
 From an adversarial review on four angles (injection, concept, new user, robustness and tests).
