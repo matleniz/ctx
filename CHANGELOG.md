@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.3 - 2026-11-06
+
+From an adversarial review on four angles (injection, concept, new user, robustness and tests).
+
+- A first line within 200 characters as written is no longer cut because normalization lengthened it (`…` becomes
+  `...`): the cap allows what normalization added, up to 20 characters. Real lines lost the end of their Next.
+- Redaction: URL passwords that hold `/` or `@`, `password:` / `token=` / `api_key=` followed by letters and digits,
+  and 40-character base64 keys (AWS secret keys) are redacted. Mongolian variation selectors are removed.
+- A tree of exactly 20000 folders is no longer reported as cut short.
+- `install` writes the Python that ran it instead of `python3`, and says how to merge the block.
+- Tests: 94 (from 75), one per defense: fake clock for each deadline check, folder cap below the top level, secrets
+  in folder names and across the cap, read size, sort ties and order, cap bounds; the install test passes in a
+  path with spaces.
+- README: most of the measured gain is the rule's, the hook saves turns from a parent folder; how to merge the
+  hook block; the hook also runs on resume, `/clear` and compaction; limits for archives, huge folders and a moved
+  clone. Rule: Next is never "confirm the state".
+
 ## 2.0.2 - 2026-11-06
 
 - The 200-character cap holds: text is normalized (NFKC) before redaction and capping, so expanding characters no

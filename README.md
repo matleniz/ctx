@@ -10,8 +10,9 @@ library only. It writes nothing, keeps nothing and runs no other program.
 
 ## Quick start
 
-1. Install the hook (Claude Code). `install` only prints a block; merge its `SessionStart` entry into
-   `~/.claude/settings.json`:
+1. Install the hook (Claude Code). `install` only prints a block, with the Python that ran it; merge it into
+   `~/.claude/settings.json` (no such file: save the block as is; a `SessionStart` list already there: append the
+   object it holds to that list). It runs at startup, and also on resume, `/clear` and compaction:
 
    ```
    git clone https://github.com/matleniz/ctx
@@ -64,7 +65,8 @@ Line 1 is the only line that goes up, so a blocker comes first. The date shown i
     stands, then "Next: ..." (it is the only line shown in parent folders);
   - `## Status`: done / not done / blocked, with evidence (commit, test, file); work you could not check is
     written "not verified: ...";
-  - `## Next`: the next unfinished task, never "re-check";
+  - `## Next`: the next unfinished task, never "re-check" or "confirm the state" (what you could not check goes in
+    Status as "not verified");
   - `## Decisions`: add only new decisions, dated, with their reason; never remove earlier ones.
 - Write `STATE.md` in the folder's language (that of its README, code or course material), English by default; 40
   lines max outside Decisions: summarize the old Status rather than pile up (Decisions are kept whole).
@@ -104,9 +106,10 @@ Dates are day/month, with the year when it is not the current one. What the scan
   start folder, and inside each their sub-folders, take turns for the lines, so that a clone, an archive or many
   fake repositories in one of them cannot push the others out. Left-out entries are counted and the first are named.
 - **Cleaning:** folder names and lines are normalized (NFKC) and flattened to one line, without control or known
-  invisible characters; known token formats, `user:password@` in URLs and runs of 40 or more letters and digits
-  mixing both (full commit hashes too) become `[redacted]`; lines are capped at 200 characters and shown as JSON
-  strings, with look-alikes of the `[ctx]` marker neutralized.
+  invisible characters; known token formats, `user:password@` in URLs, `password:`, `token=` or `api_key=`
+  followed by letters and digits, 40-character base64 keys and runs of 40 or more letters and digits mixing both
+  (full commit hashes too) become `[redacted]`; lines are capped at 200 characters as written (normalization may
+  add up to 20, `…` becoming `...`) and shown as JSON strings, with look-alikes of the `[ctx]` marker neutralized.
 - **Time:** one second, checked before each folder read and between entries, and up to 20000 folders; both are
   shared between the folders directly below the start folder. A scan cut short says so. A hung network mount is
   bounded by the hook's 5-second timeout. The hook always exits 0 and prints nothing when it found nothing.
@@ -115,9 +118,11 @@ Dates are day/month, with the year when it is not the current one. What the scan
 
 Version 1 (branch [`v1`](https://github.com/matleniz/ctx/tree/v1), tag `v1.2.0`) rewrote each folder's state with a
 model call after the session, kept decisions in code, history, undo and locks. On 10-session chains, a plain
-`STATE.md` rule scored as well. Against no rule and no hook, ctx 2.0 keeps the thread of long work (continuity 8.6
-and 8.8 out of 9 versus 7.3 and 5.2) and resumes real folders in half the turns, at the price of updating
-`STATE.md`. Figures, method and the cases where ctx did worse: [docs/measures.md](docs/measures.md).
+`STATE.md` rule scored as well. Most of the gain is the rule's: against no rule and no hook, ctx 2.0 keeps the
+thread of long work (continuity 8.6 and 8.8 out of 9 versus 7.3 and 5.2) and resumes real folders in half the
+turns, where the hook plays no part, at the price of updating `STATE.md`. The hook saves turns from a parent folder:
+the same files answer as well without it, in 5.6 turns instead of 3.6. Figures, method and the cases where ctx did
+worse: [docs/measures.md](docs/measures.md).
 
 ## Limits
 
@@ -131,8 +136,13 @@ and 8.8 out of 9 versus 7.3 and 5.2) and resumes real folders in half the turns,
   `git worktree remove` loses them for good (no history, no undo). `STATE.md` does not follow a repository to
   another machine.
 - Only your own files are read: a shared folder written by other users shows nothing of theirs.
-- Redaction is pattern-based: `password=hunter2` or `API_KEY=...` written as text passes, and the body of
-  `STATE.md` is not redacted. Keep secrets out of `STATE.md`, as the rule says.
+- Redaction is pattern-based: `password=hunter` (no digit), a secret under another name or in another shape
+  passes, and the body of `STATE.md` is not redacted. Keep secrets out of `STATE.md`, as the rule says.
+- Many sibling folders with a `STATE.md` (an unpacked archive) take turns with your folders and can push older
+  entries out of the 30 lines; the notice counts them. One folder holding millions of entries can use the
+  one-second budget by itself; the scan then says it was cut short.
+- The hook runs the Python that ran `install`, at the clone's path: moving the clone or removing that Python
+  breaks it silently; run `install` again.
 - Linux, macOS and WSL; Windows without WSL is untested.
 
 ## Uninstall

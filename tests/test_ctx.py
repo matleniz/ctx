@@ -489,6 +489,204 @@ class Render(Base):
         self.assertIn('- "caf\ufffd" (', text)
 
 
+class Clock:
+    """A fake time.monotonic that only moves when told to: each test makes one kind of work cost one second."""
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+class Hardening(Base):
+    """2.0.3: one test per defense, so that removing any of them fails a test."""
+
+    def scan_with(self, clock, budget):
+        with mock.patch.object(ctx.time, "monotonic", clock):
+            return ctx.scan(self.root, budget=budget)
+
+    def test_no_folder_read_starts_after_the_deadline(self):
+        for i in range(10):
+            (self.root / f"d{i}" / "x").mkdir(parents=True)
+        clock, real, calls = Clock(), os.scandir, []
+
+        def scandir(path):
+            calls.append(clock.t)
+            clock.t += 1
+            return real(path)
+        with mock.patch.object(ctx.os, "scandir", scandir):
+            _, complete = self.scan_with(clock, 2.5)
+        self.assertFalse(complete)
+        self.assertTrue(all(t <= 2.5 for t in calls), calls)
+
+    def test_a_folder_read_stops_at_the_deadline(self):
+        for i in range(100):
+            (self.root / "a" / f"d{i:03d}").mkdir(parents=True)
+        clock, real, seen = Clock(), os.scandir, []
+
+        class Slow:
+            def __init__(self, path):
+                self.it = real(path)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                self.it.close()
+
+            def __iter__(self):
+                for e in self.it:
+                    seen.append(e.name)
+                    clock.t += 1
+                    yield e
+        with mock.patch.object(ctx.os, "scandir", Slow):
+            _, complete = self.scan_with(clock, 10)
+        self.assertFalse(complete)
+        self.assertLess(len(seen), 20)
+
+    def test_top_folder_visits_stop_at_the_deadline(self):
+        for i in range(50):
+            self.state(f"t{i:02d}")
+        clock, real, calls = Clock(), ctx.first_line, []
+
+        def first_line(path):
+            calls.append(path)
+            clock.t += 1
+            return real(path)
+        with mock.patch.object(ctx, "first_line", first_line):
+            _, complete = self.scan_with(clock, 10)
+        self.assertFalse(complete)
+        self.assertLessEqual(len(calls), 11)
+
+    def test_folders_entered_never_pass_the_cap(self):
+        for i in range(10):
+            for j in range(20):
+                (self.root / f"t{i}" / f"a{j:02d}" / "b").mkdir(parents=True)
+        calls = []
+        real = ctx.first_line
+
+        def first_line(path):
+            calls.append(path)
+            return real(path)
+        with mock.patch.object(ctx, "first_line", first_line), mock.patch.object(ctx, "MAX_DIRS", 40):
+            _, complete = ctx.scan(self.root)
+        self.assertFalse(complete)
+        self.assertLessEqual(len(calls), 40)
+
+    def test_top_folders_alone_pass_the_cap(self):
+        for i in range(20):
+            (self.root / f"t{i:02d}").mkdir()
+        calls = []
+        real = ctx.first_line
+
+        def first_line(path):
+            calls.append(path)
+            return real(path)
+        with mock.patch.object(ctx, "first_line", first_line), mock.patch.object(ctx, "MAX_DIRS", 5):
+            _, complete = ctx.scan(self.root)
+        self.assertEqual((len(calls), complete), (5, False))
+
+    def test_tree_of_exactly_the_cap_is_complete(self):
+        (self.root / "a" / "b" / "c" / "d").mkdir(parents=True)
+        with mock.patch.object(ctx, "MAX_DIRS", 4):
+            self.assertTrue(ctx.scan(self.root)[1])
+        with mock.patch.object(ctx, "MAX_DIRS", 3):
+            self.assertFalse(ctx.scan(self.root)[1])
+
+    def test_cut_below_the_top_level_is_reported(self):
+        for i in range(3):
+            for j in range(10):
+                (self.root / f"t{i}" / f"d{j}").mkdir(parents=True)
+        with mock.patch.object(ctx, "MAX_DIRS", 8):
+            self.assertFalse(ctx.scan(self.root)[1])
+
+    def test_ellipsis_written_within_the_cap_is_not_cut(self):
+        text = "a…… " + "word " * 37 + "Next: end."
+        self.assertLessEqual(len(text), ctx.MAX_CHARS)
+        self.state("a", text)
+        self.assertIn("Next: end.", ctx.render(self.root, *ctx.scan(self.root)))
+
+    def test_cap_bounds(self):
+        self.state("a", "x" * ctx.MAX_CHARS)
+        self.state("b", "y" * (ctx.MAX_CHARS + 1))
+        text = ctx.render(self.root, *ctx.scan(self.root))
+        self.assertIn('"' + "x" * ctx.MAX_CHARS + '"', text)
+        self.assertIn('"' + "y" * (ctx.MAX_CHARS - 1) + '…"', text)
+
+    def test_secret_across_the_cap_does_not_leak(self):
+        self.state("a", "x" * 180 + "(ghp_abcdefghijklmnopqrstuvwxyz0123")  # no space: a cut would land inside
+        self.assertNotIn("ghp_", ctx.render(self.root, *ctx.scan(self.root)))
+
+    def test_secrets_in_folder_names_are_redacted_everywhere(self):
+        token = "ghp_abcdefghijklmnopqrstuvwxyz0123"
+        (self.root / token / ".git").mkdir(parents=True)
+        for i in range(ctx.PER_GROUP + 1):  # one too many: the notice names the repository
+            self.state(f"{token}/p{i}", "x", mtime=1_000_000 + i)
+        for i in range(40):  # more groups than lines: the rest is named
+            self.state(f"other{i:02d}/{token}", "y", mtime=2_000_000 + i)
+        text = ctx.render(self.root, *ctx.scan(self.root))
+        self.assertIn("more in", text)
+        self.assertIn("more not shown", text)
+        self.assertNotIn("ghp_", text)
+
+    def test_per_group_bound(self):
+        (self.root / "r" / ".git").mkdir(parents=True)
+        for i in range(ctx.PER_GROUP + 1):
+            self.state(f"r/p{i}", f"entry {i}")
+        text = ctx.render(self.root, *ctx.scan(self.root))
+        self.assertEqual(text.count("entry "), ctx.PER_GROUP)
+        self.assertIn("(+1 more in", text)
+
+    def test_bom_then_front_matter(self):
+        self.state("a", "﻿---\ntitle: x\n---\nReal.")
+        self.assertIn('"Real."', ctx.render(self.root, *ctx.scan(self.root)))
+
+    def test_read_is_bounded(self):
+        sizes = []
+        real = os.read
+
+        def read(fd, n):
+            sizes.append(n)
+            return real(fd, n)
+        self.state("a", "x" * 10000)
+        with mock.patch.object(ctx.os, "read", read):
+            ctx.scan(self.root)
+        self.assertEqual(sizes, [ctx.READ_BYTES])
+
+    def test_same_date_sorts_by_path(self):
+        for name in ("b", "a", "c"):
+            self.state(name, name, mtime=1_000_000)
+        lines = ctx.render(self.root, *ctx.scan(self.root)).splitlines()[1:4]
+        self.assertEqual([x.split('"')[1] for x in lines], ["a", "b", "c"])
+
+    def test_shown_lines_are_newest_first(self):
+        for i in range(5):
+            for j in range(10):
+                self.state(f"t{i}/p{j}", "x", mtime=1_000_000 + 100 * j + (5000 if i == 0 else i))
+        found, complete = ctx.scan(self.root)
+        entries = [x for x in ctx.render(self.root, found, complete).splitlines() if x.startswith("- ")]
+        order = {e[1]: e[0] for e in found}
+        dates = [order[x.split('"')[1]] for x in entries]
+        self.assertEqual(dates, sorted(dates, reverse=True))
+
+    def test_negative_mtime_is_a_date(self):
+        self.state("a", "x", mtime=-86400)
+        self.assertIn('"a" (', ctx.render(self.root, *ctx.scan(self.root)))
+
+    def test_more_secret_shapes(self):
+        for text, gone in [("AWS wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "K7MDENG"),
+                           ("postgres://admin:pa/ss1234word@db.internal/prod", "1234"),
+                           ("postgres://admin:p@ssw0rd-secret@db.internal/x", "ssw0rd"),
+                           ("password: Hunter2Hunter2", "Hunter2"), ("api_key=3f2a9c8d1e2f3a4b", "3f2a")]:
+            self.assertNotIn(gone, ctx.redact(text), text)
+        for text in ("Token : budget 160k", "see https://host:443/a/b and me@example.com",
+                     "packages/effets/src/components/Header/index.ts", "git@github.com:foo/bar.git"):
+            self.assertEqual(ctx.redact(text), text)
+
+    def test_mongolian_selectors_removed(self):
+        self.assertEqual(ctx.clean("a᠋b᠏c"), "a b c")
+
+
 class Cli(Base):
     def run_ctx(self, *args, stdin: str = "", cwd: Path | None = None):
         return subprocess.run([sys.executable, str(CTX), *args], input=stdin, capture_output=True,
@@ -533,9 +731,12 @@ class Cli(Base):
 
     def test_install_prints_only(self):
         p = self.run_ctx("install")
-        block = json.loads(p.stdout.split("\n", 1)[1])
+        block = json.loads(p.stdout[p.stdout.index("{"):])
         cmd = block["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-        self.assertTrue(cmd.endswith("ctx.py hook session-start"))
+        args = shlex.split(cmd)
+        self.assertEqual(args[0], sys.executable)
+        self.assertTrue(args[1].endswith("ctx.py"))
+        self.assertEqual(args[2:], ["hook", "session-start"])
         self.assertEqual(list(self.root.iterdir()), [])
 
     def test_install_quotes_a_path_with_spaces(self):
@@ -543,7 +744,7 @@ class Cli(Base):
         d.mkdir()
         (d / "ctx.py").write_text(CTX.read_text())
         p = subprocess.run([sys.executable, str(d / "ctx.py"), "install"], capture_output=True, text=True, timeout=30)
-        cmd = json.loads(p.stdout.split("\n", 1)[1])["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        cmd = json.loads(p.stdout[p.stdout.index("{"):])["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         self.assertEqual(shlex.split(cmd)[1], str((d / "ctx.py").resolve()))
 
     def test_hook_relative_cwd_resolved(self):

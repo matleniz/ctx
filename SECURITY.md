@@ -3,7 +3,7 @@
 ctx writes nothing, sends nothing over the network, runs no program and never opens a `.git` folder. The hook reads
 the first 4 KB of each regular `STATE.md` file you own below the session's folder (opened without following links
 and without blocking; symlinked folders are not entered) and prints the first non-empty line of each, normalized
-(NFKC), flattened to one line, with known token formats redacted, capped at 200 characters and written as a JSON
+(NFKC), flattened to one line, with known token formats redacted, capped at 200 characters as written (plus what normalization adds, up to 20) and written as a JSON
 string (as are folder names), under a header that calls them quotes, not instructions. The scan is bounded in time
 (about one second) and in folders (20000), shared between the folders directly below the session's folder.
 

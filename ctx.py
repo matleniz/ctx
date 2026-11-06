@@ -25,13 +25,14 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-VERSION = "2.0.2"
+VERSION = "2.0.3"
 STATE = "STATE.md"
 MAX_DEPTH = 4          # levels below the start folder (~/projects/<p>/wt/<branch> is level 4)
 MAX_LINES = 30         # entries shown
 PER_GROUP = 8          # entries per git repository below the start folder, or (outside git) per folder one or
                        # two levels below it: one clone or unpacked archive cannot fill the list
-MAX_CHARS = 200        # per first line
+MAX_CHARS = 200        # per first line as written; normalization (… becomes ...) may add up to SLACK
+SLACK = 20
 BUDGET_S = 1.0         # wall-clock cap of the scan, checked before each folder read and at each entry
 MAX_DIRS = 20000       # folders entered at most, shared between the folders directly below
 READ_BYTES = 4096
@@ -50,18 +51,25 @@ SECRET = re.compile("|".join([  # known token formats, credentials in URLs, long
     _B + r"AIza[0-9A-Za-z_-]{30,}", r"hooks\.slack\.com/\S+",
     r"(?i:bearer)\s+(?=(?:[^0-9\s]*[0-9]){3})(?=\S*[A-Z])[A-Za-z0-9._~+/-]{20,}=*",
     _B + r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
-    r"(?<=://)[^/\s:@]*:[^/\s@]+(?=@)",  # user:password@ (the part before @ is always the user information)
+    # user:password@host: the password runs to the last @ before the host, so it may hold / or @
+    r"(?<=://)[^/\s:@]*:\S*?(?=@[^\s/@]*(?:[/?#\s]|$))",
+    r"(?i:(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|token|api[_-]?key)\s*[:=]\s*(?=\S*[0-9])(?=\S*[A-Za-z])\S{6,})",  # password: x1y2z3
+    # 40 base64 characters with all three classes (an AWS secret key), bounded so a longer path is not cut
+    r"(?<![A-Za-z0-9/+._-])(?=[A-Za-z0-9/+]*[0-9])(?=[A-Za-z0-9/+]*[a-z])(?=[A-Za-z0-9/+]*[A-Z])"
+    r"[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+._=-])",
     r"\b(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{40,}\b"]))
 
 Entry = tuple[float, str, str, str]  # (mtime, relative path, first line, repository key or "")
 INVISIBLE = set(range(0xFE00, 0xFE10)) | set(range(0xE0100, 0xE01F0)) | {
-    0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0}
+    0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180F, 0x2800, 0x3164, 0xFFA0}
 
 
-def clean(text: str) -> str:
+def clean(text: str, normalize: bool = True) -> str:
     """One display line, normalized (NFKC) first so that nothing grows or changes after redaction and capping:
     undecodable bytes and non-printable characters (newlines included) become spaces."""
-    text = unicodedata.normalize("NFKC", text.encode("utf-8", "surrogateescape").decode("utf-8", "replace"))
+    text = text.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+    if normalize:
+        text = unicodedata.normalize("NFKC", text)
     return " ".join("".join(c if c.isprintable() and ord(c) not in INVISIBLE else " " for c in text).split())
 
 
@@ -105,10 +113,12 @@ def first_line(path: str) -> tuple[str, float] | None:
     lines = raw.decode("utf-8", errors="replace").lstrip("﻿").splitlines()
     if lines and lines[0].strip() == "---" and "---" in (x.strip() for x in lines[1:]):
         lines = lines[1 + [x.strip() for x in lines[1:]].index("---") + 1:]
-    for line in lines:
-        line = clean(HEADING.sub("", line.strip()))
-        if line and line != "---":
-            return cap(redact(line)), st.st_mtime
+    for raw in lines:
+        raw = HEADING.sub("", raw.strip())
+        line = clean(raw)
+        if line and line != "---":  # a line within MAX_CHARS as written is not cut for what normalization added
+            grown = min(SLACK, max(0, len(line) - len(clean(raw, normalize=False))))
+            return cap(redact(line), MAX_CHARS + grown), st.st_mtime
     return None
 
 
@@ -171,8 +181,10 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
     while walks and time.monotonic() <= deadline and total < MAX_DIRS:
         walks = [w for w in walks if w]  # each round only visits the walks still going
         for w in walks:  # one folder read per walk and per round
-            if time.monotonic() > deadline or total >= MAX_DIRS:
+            if time.monotonic() > deadline:
                 complete = False
+                break
+            if total >= MAX_DIRS:  # whether something was left out is decided below
                 break
             path, level, repo = w.popleft()
             if level >= depth:
@@ -186,7 +198,7 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
                     break
                 total += 1
                 w.append((e.path, level + 1, visit(e, repo)))
-    if any(walks):
+    if any(level < depth for w in walks for _, level, _ in w):  # folders left unread (the last level is not read)
         complete = False
     return found, complete
 
@@ -283,7 +295,8 @@ def hook(event: str) -> int:
 
 
 def install_block() -> str:
-    cmd = f"python3 {shlex.quote(str(Path(__file__).resolve()))} hook session-start"
+    python = shlex.quote(sys.executable) if sys.executable else "python3"  # the Python that ran install
+    cmd = f"{python} {shlex.quote(str(Path(__file__).resolve()))} hook session-start"
     block = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": cmd, "timeout": 5}]}]}}
     return json.dumps(block, indent=2)
 
@@ -307,7 +320,8 @@ def main(argv: list[str]) -> int:
         print(text or f"No {STATE} below {root}.")
         return 0
     if cmd == "install":
-        print("Merge this into ~/.claude/settings.json (ctx writes nothing):")
+        print("Merge this into ~/.claude/settings.json (ctx writes nothing). Without that file, save the block as it")
+        print("is; if it already has hooks.SessionStart, append the object inside the list below to that list:")
         print(install_block())
         return 0
     print(f"ctx: unknown command {cmd!r} (see --help)", file=sys.stderr)
