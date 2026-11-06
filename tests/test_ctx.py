@@ -389,6 +389,25 @@ class Render(Base):
             self.assertNotIn("20241106", ctx.redact(url))
         self.assertEqual(ctx.redact("http://localhost:8080/x"), "http://localhost:8080/x")
 
+    def test_top_folders_respect_the_budget(self):
+        for i in range(3000):
+            self.state(f"t{i:04d}", "x")
+        t = time.monotonic()
+        _, complete = ctx.scan(self.root, budget=0.02)
+        self.assertLess(time.monotonic() - t, 0.5)
+        self.assertFalse(complete)
+
+    def test_unused_share_goes_to_the_others(self):
+        for i in range(40):
+            (self.root / f"empty{i:02d}").mkdir()
+        for i in range(1000):
+            self.state(f"projets/p{i:04d}", "x")
+        found, complete = ctx.scan(self.root)
+        self.assertEqual((len(found), complete), (1000, True))
+
+    def test_url_password_without_user(self):
+        self.assertNotIn("p4ss", ctx.redact("redis://:p4ss@cache"))
+
     def test_render_is_fast_with_many_entries(self):
         found = [(1e9 + i, f"top{i % 60}/p{i}", "x", "") for i in range(30000)]
         t = time.monotonic()

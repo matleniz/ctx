@@ -50,7 +50,7 @@ SECRET = re.compile("|".join([  # known token formats, credentials in URLs, long
     _B + r"AIza[0-9A-Za-z_-]{30,}", r"hooks\.slack\.com/\S+",
     r"(?i:bearer)\s+(?=(?:[^0-9\s]*[0-9]){3})(?=\S*[A-Z])[A-Za-z0-9._~+/-]{20,}=*",
     _B + r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
-    r"(?<=://)[^/\s:@]+:[^/\s@]+(?=@)",  # user:password@ (the part before @ is always the user information)
+    r"(?<=://)[^/\s:@]*:[^/\s@]+(?=@)",  # user:password@ (the part before @ is always the user information)
     r"\b(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{40,}\b"]))
 
 Entry = tuple[float, str, str, str]  # (mtime, relative path, first line, repository key or "")
@@ -119,8 +119,9 @@ def is_repo(path: str) -> bool:
 def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[list[Entry], bool]:
     """STATE.md files strictly below root. Returns (entries, complete).
 
-    Each folder directly below root is walked breadth first, and the walks take turns, one folder read at a time,
-    each with its share of MAX_DIRS: a folder full of sub-folders cannot use up the time or the cap of the others.
+    Each folder directly below root is walked breadth first, and the walks take turns, one folder read at a time;
+    one read takes at most half of what is left of MAX_DIRS: a folder full of sub-folders cannot use up the time or
+    the cap of the others, and an ordinary tree is read in full.
     Hidden folders, SKIP names and symlinked folders are not entered. Each entry carries the git repository below
     root that holds it (a folder with a `.git`, never opened).
     """
@@ -160,28 +161,29 @@ def scan(root: Path, depth: int = MAX_DEPTH, budget: float = BUDGET_S) -> tuple[
     tops = subdirs(str(root))
     if len(tops) > MAX_DIRS:
         tops, complete = tops[:MAX_DIRS], False
-    quota = max(1, MAX_DIRS // max(1, len(tops)))
-    walks = []  # one per top folder: [queue of (path, level, repo), folders entered]
+    total = len(tops)
+    walks: list[deque] = []  # one per top folder: queue of (path, level, repo)
     for e in tops:
-        walks.append([deque([(e.path, 1, visit(e, ""))]), 1])
-    while any(w[0] for w in walks) and time.monotonic() <= deadline:
-        for w in walks:  # a walk that used up its share stops; the others go on
-            if not w[0]:
-                continue
-            if time.monotonic() > deadline:
+        if time.monotonic() > deadline:
+            complete = False
+            break
+        walks.append(deque([(e.path, 1, visit(e, ""))]))
+    while walks and time.monotonic() <= deadline and total < MAX_DIRS:
+        walks = [w for w in walks if w]  # each round only visits the walks still going
+        for w in walks:  # one folder read per walk and per round
+            if time.monotonic() > deadline or total >= MAX_DIRS:
                 complete = False
                 break
-            path, level, repo = w[0].popleft()
+            path, level, repo = w.popleft()
             if level >= depth:
                 continue
-            for e in subdirs(path):
-                if w[1] >= quota:
-                    complete = False
-                    w[0].clear()
-                    break
-                w[1] += 1
-                w[0].append((e.path, level + 1, visit(e, repo)))
-    if any(w[0] for w in walks):
+            subs = subdirs(path)
+            room = max(1, (MAX_DIRS - total) // 2)  # one read takes at most half of what is left of the cap
+            if len(subs) > room:
+                subs, complete = subs[:room], False
+            total += len(subs)
+            w.extend((e.path, level + 1, visit(e, repo)) for e in subs)
+    if any(walks):
         complete = False
     return found, complete
 
@@ -246,7 +248,8 @@ def render(root: Path, found: list[Entry], complete: bool) -> str:
         more = ", ".join(names[:3]) + (", ..." if len(names) > 3 else "")
         out.append(f"(+{sum(hidden.values())} more in {more}: at most {PER_GROUP} per repository or folder)")
     if len(kept) > len(shown):
-        rest = [e for e in kept if e not in shown_set]
+        kept_set = set(kept)
+        rest = [e for e in newest_first if e in kept_set and e not in shown_set]
         names = [quote(cap(redact(clean(e[1])), 60)) for e in rest[:5]]
         out.append(f"(+{len(rest)} more not shown: " + ", ".join(names) + (", ...)" if len(rest) > 5 else ")"))
     if not complete:
