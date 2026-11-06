@@ -18,6 +18,9 @@ one file that surfaces the first line of the `STATE.md` files below the session'
   forged indexes (huge counts, paths over 4096 bytes, split or sparse index) are refused within the time budget;
   a `gitdir:` that leads nowhere is not trusted; repository names in notices are quoted; `[CTX]`-like variants of
   the frame marker (full-width, Cyrillic, Greek) are neutralized; left-out entries are named.
+- The newest `STATE.md` of each folder directly below the start folder is always shown (an unpacked archive
+  cannot evict the others); the header no longer claims who wrote the lines; more token formats are redacted
+  (Stripe, GitLab, Hugging Face, JWT, URL credentials, `password=`), and ordinary paths no longer are.
 - Only `STATE.md` files owned by the current user are read; common token formats in a first line are redacted;
   a huge folder is read within the time budget.
 - Every `STATE.md` below is listed: a folder's own state no longer hides those under it. Paths and lines are

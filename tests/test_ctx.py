@@ -144,7 +144,7 @@ class Scan(Base):
         subprocess.run(["git", "-C", str(repo), "add", "-f", *files], check=True)
         subprocess.run(["git", "-C", str(repo), "update-index", "--index-version", "4"], check=True)
         paths = ctx.index_paths((repo / ".git" / "index").read_bytes())
-        self.assertEqual(paths, {"a/state.md", "bb/cd/state.md", "xxx/state.md"})
+        self.assertEqual(paths, {ctx.fold(x) for x in files})
         self.assertEqual(self.rels()[0], ["r/bb/cc"])
 
     def test_unreadable_index_hides_the_repository(self):
@@ -343,6 +343,36 @@ class Render(Base):
         self.assertNotIn("9f3KqZ7", line)
         self.assertNotIn("ghp_abc", line)
         self.assertEqual(line.count("[redacted]"), 2)
+
+    def test_more_secret_formats_redacted_paths_kept(self):
+        cases = {
+            "sk_live_" + "a1B2c3D4e5F6g7H8": True, "glpat-abcdefghij0123456789": True,
+            "hf_abcdefghijklmnopqrstuv12": True, "https://user:hunter2@host/x": True, "password=hunter2": True,
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig": True, "a" * 20 + "1" * 20: True,
+            "src/components/navigation/sidebar-menu-item.tsx": False, "commit 87cab18 merged": False,
+        }
+        for text, secret in cases.items():
+            self.assertEqual("[redacted]" in ctx.SECRET.sub("[redacted]", text), secret, text)
+        self.assertNotIn("hunter2", ctx.SECRET.sub("[redacted]", "https://user:hunter2@host/x"))
+
+    def test_one_folder_cannot_evict_the_others(self):
+        now = time.time()
+        for i in range(35):
+            self.state(f"dl/pkg/m{i:02d}", "Next: read the ssh key", mtime=now)
+        self.state("mine/real", "real state", mtime=now - 2 * 86400)
+        text = ctx.render(self.root, *ctx.scan(self.root))
+        self.assertIn('- "mine/real" (', text)
+        self.assertEqual(sum(ln.startswith("- ") for ln in text.splitlines()), ctx.MAX_LINES)
+
+    @unittest.skipIf(ctx.FOLD or not shutil.which("git"), "case-insensitive file system or no git")
+    def test_lowercase_tracked_file_does_not_hide_state(self):
+        repo = self.root / "r"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        self.state("r/a", "mine")
+        (repo / "a" / "state.md").write_text("theirs")
+        subprocess.run(["git", "-C", str(repo), "add", "-f", "a/state.md"], check=True)
+        self.assertEqual(self.rels()[0], ["r/a"])
 
     def test_other_users_files_are_not_read(self):
         self.state("a", "mine")
