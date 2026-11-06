@@ -347,13 +347,13 @@ class Render(Base):
     def test_more_secret_formats_redacted_paths_kept(self):
         cases = {
             "sk_live_" + "a1B2c3D4e5F6g7H8": True, "glpat-abcdefghij0123456789": True,
-            "hf_abcdefghijklmnopqrstuv12": True, "https://user:hunter2@host/x": True, "password=hunter2": True,
+            "hf_abcdefghijklmnopqrstuv12": True, "https://user:hunter2@host/x": True, "PASSWORD=hunter2": True,
             "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig": True, "a" * 20 + "1" * 20: True,
             "src/components/navigation/sidebar-menu-item.tsx": False, "commit 87cab18 merged": False,
         }
         for text, secret in cases.items():
-            self.assertEqual("[redacted]" in ctx.SECRET.sub("[redacted]", text), secret, text)
-        self.assertNotIn("hunter2", ctx.SECRET.sub("[redacted]", "https://user:hunter2@host/x"))
+            self.assertEqual("[redacted]" in ctx.redact(text), secret, text)
+        self.assertNotIn("hunter2", ctx.redact("https://user:hunter2@host/x"))
 
     def test_one_folder_cannot_evict_the_others(self):
         now = time.time()
@@ -378,10 +378,14 @@ class Render(Base):
     def test_branch_names_are_not_redacted(self):
         for text in ("Next: finish the task-scheduler-refactor branch", "disk-usage-monitoring-v2 done",
                      "risk-assessment-module-final ok"):
-            self.assertEqual(ctx.SECRET.sub("[redacted]", text), text)
-        for text in ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI", "password: hunter2", 'token": "abc123def"',
-                     "Authorization: Bearer abcdefghijklmnop", "npm_abcdefghijklmnopqrstuvwxyz"):
-            self.assertIn("[redacted]", ctx.SECRET.sub("[redacted]", text), text)
+            self.assertEqual(ctx.redact(text), text)
+        for text in ("Tokenizer: switched to BPE", "Bearer authentication implemented", "Secrets: moved to vault",
+                     "max_tokens=4096", "Token : budget 160k", "Mot de passe : réinitialisation livrée",
+                     "Secretary: email sent", "tokens: 450k"):
+            self.assertEqual(ctx.redact(text), text)
+        for text in ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI", "password=hunter2",
+                     "Authorization: Bearer abcdefgh1jklmnop", "npm_abcdefghijklmnopqrstuvwxyz"):
+            self.assertIn("[redacted]", ctx.redact(text), text)
 
     @unittest.skipIf(ctx.FOLD or not shutil.which("git"), "case-insensitive file system or no git")
     def test_lowercase_tracked_file_does_not_hide_state(self):
@@ -392,6 +396,30 @@ class Render(Base):
         (repo / "a" / "state.md").write_text("theirs")
         subprocess.run(["git", "-C", str(repo), "add", "-f", "a/state.md"], check=True)
         self.assertEqual(self.rels()[0], ["r/a"])
+
+    def test_forged_v4_varint_is_refused_fast(self):
+        n = 300
+        entry = b"\0" * 60 + b"\x00\x01" + b"\xff" * 600 + b"\x00a\0"
+        data = b"DIRC" + (4).to_bytes(4, "big") + n.to_bytes(4, "big") + entry * n
+        t = time.monotonic()
+        self.assertIsNone(ctx.index_paths(data))
+        self.assertLess(time.monotonic() - t, 0.5)
+
+    def test_fake_repositories_in_one_folder_cannot_evict_others(self):
+        now = time.time()
+        for i in range(30):
+            (self.root / "Downloads" / "pkg" / f"r{i:02d}" / ".git").mkdir(parents=True)
+            self.state(f"Downloads/pkg/r{i:02d}", "planted", mtime=now)
+        for name in "abc":
+            (self.root / "projets" / name / ".git").mkdir(parents=True)
+            self.state(f"projets/{name}", f"project {name}", mtime=now - 86400)
+        text = ctx.render(self.root, *ctx.scan(self.root))
+        for name in "abc":
+            self.assertIn(f'- "projets/{name}" (', text)
+
+    def test_old_year_is_shown(self):
+        self.state("old", "x", mtime=time.time() - 400 * 86400)
+        self.assertRegex(ctx.render(self.root, *ctx.scan(self.root)), r'"old" \(\d\d/\d\d/\d{4}\)')
 
     def test_other_users_files_are_not_read(self):
         self.state("a", "mine")

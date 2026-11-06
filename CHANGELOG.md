@@ -5,10 +5,9 @@
 ctx lite. Each folder's state is a `STATE.md` written by the agent itself, asked by a rule in `AGENTS.md`; ctx is
 one file that surfaces the first line of the `STATE.md` files below the session's folder at session start.
 
-- Scan: up to 4 levels, 30 lines, at most 8 per group (git repository, or folder directly below outside
-  git); a `STATE.md` that is empty,
-  a symlink or not a regular file does not hide the folders under it; only folders count toward the 20000 cap;
-  a scan cut short says so even when it found nothing; a date in the future sorts last.
+- Scan: up to 4 levels, 30 lines, at most 8 per group (git repository, or folder directly below outside git); a
+  `STATE.md` that is empty, a symlink or not a regular file does not hide the folders under it; only folders count
+  toward the 20000 cap; a scan cut short says so even when it found nothing; a date in the future sorts last.
 - Folder names and first lines are flattened to one line without control characters (a folder name with a newline
   could forge a line); a `#` is removed only as a Markdown heading mark (`#77` stays).
 - `install` quotes the path of `ctx.py`; the hook resolves a relative `cwd`.
@@ -16,13 +15,15 @@ one file that surfaces the first line of the `STATE.md` files below the session'
   index file itself and runs no program, so a hostile repository configuration cannot execute code; a repository
   whose index cannot be read has its entries left out, and the output says so.
 - Hardened against unpacked archives: a `.git` that is not a regular file or folder (FIFO, symlink) is not opened;
-  forged indexes (huge counts, paths over 4096 bytes, split or sparse index) are refused within the time budget;
-  a `gitdir:` that leads nowhere is not trusted; repository names in notices are quoted; `[CTX]`-like variants of
-  the frame marker (full-width, Cyrillic, Greek) are neutralized; left-out entries are named.
-- The newest `STATE.md` of each group is always shown, so one clone or unpacked archive cannot hide the
-  others; the header no longer claims who wrote the lines; more token formats are redacted
-  (Stripe, GitLab, Hugging Face, npm, Slack webhooks, bearer tokens, JWT, URL credentials, `password:`-like
-  assignments), token prefixes need a word boundary (`task-scheduler` stays), and ordinary paths are kept.
+  forged indexes (huge counts, paths over 4096 bytes, split or sparse index) are refused within the time budget; a
+  `gitdir:` that leads nowhere is not trusted; repository names in notices are quoted; `[CTX]`-like variants of the
+  frame marker (full-width, Cyrillic, Greek) are neutralized; left-out entries are named.
+- Lines are shared in turn between the folders directly below the start folder, so one clone, unpacked archive or
+  set of fake repositories cannot push the other folders out; the header no longer claims who wrote the lines; more
+  token formats are redacted (Stripe, GitLab, Hugging Face, npm, Slack webhooks, bearer tokens, JWT, URL
+  credentials, `SOME_SECRET=` and `password=` values), token prefixes need a word boundary (`task-scheduler` stays),
+  ordinary words and paths are kept (`Tokenizer:`, `max_tokens=4096`); folder names are redacted too.
+- Dates from another year show the year. A forged v4 index cannot make the parser run past its time budget.
 - `STATE.md` is opened without following links and without blocking, then checked as a regular file you own;
   a forged index only keeps `STATE.md` paths in memory.
 - Only `STATE.md` files owned by the current user are read; common token formats in a first line are redacted;
