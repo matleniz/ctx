@@ -38,6 +38,8 @@ Line 1 is the one that goes up. No front matter: the date shown is the file's la
   - `## Status`: done / not done / blocked, with evidence (commit, test, file);
   - `## Next`: the next unfinished task, never "re-check";
   - `## Decisions`: add only new decisions, dated, with their reason; never remove earlier ones.
+- Write `STATE.md` in the repository's language (that of its README and code), English by default; 40 lines max:
+  summarize the old Status rather than pile up (Decisions are not summarized).
 - Never write another folder's `STATE.md`. No secrets. No `STATE.md` for a plain container (`~`, `courses/`).
 ```
 
