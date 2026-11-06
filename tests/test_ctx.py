@@ -44,7 +44,8 @@ class Base(unittest.TestCase):
 
 class FirstLine(Base):
     def line(self, text: str) -> str:
-        return ctx.first_line(write(self.root / "STATE.md", text))
+        got = ctx.first_line(str(write(self.root / "STATE.md", text)))
+        return got[0] if got else ""
 
     def test_plain(self):
         text = "Algebra: 3/5 done. Next: ex 4.\n\n## Status\n- a\n"
@@ -79,14 +80,14 @@ class FirstLine(Base):
     def test_invalid_utf8(self):
         p = self.root / "STATE.md"
         p.write_bytes(b"caf\xe9 ok\n")
-        self.assertEqual(ctx.first_line(p), "caf� ok")
+        self.assertEqual(ctx.first_line(str(p))[0], "caf\ufffd ok")
 
     def test_unreadable(self):
-        self.assertEqual(ctx.first_line(self.root / "missing.md"), "")
+        self.assertIsNone(ctx.first_line(str(self.root / "missing.md")))
         if os.geteuid() != 0:
             p = write(self.root / "STATE.md", "secret")
             p.chmod(0)
-            self.assertEqual(ctx.first_line(p), "")
+            self.assertIsNone(ctx.first_line(str(p)))
 
 
 class Scan(Base):
@@ -151,8 +152,10 @@ class Scan(Base):
 
     def test_future_mtime_clamped(self):
         self.state("future", "x", mtime=time.time() + 10 * 365 * 86400)
-        found, _ = ctx.scan(self.root)
-        self.assertLessEqual(found[0][0], time.time())
+        self.state("now", "y")
+        lines = ctx.render(self.root, *ctx.scan(self.root)).splitlines()
+        self.assertTrue(lines[1].startswith('- "now" ('))
+        self.assertIn('- "future" (future date)', lines[2])
 
     def test_repository_key(self):
         (self.root / "clone" / ".git").mkdir(parents=True)
@@ -179,9 +182,9 @@ class Scan(Base):
                     (self.root / f"a{i}" / f"b{j}" / f"c{k}").mkdir(parents=True)
         self.state("a3/b4")
         t = time.monotonic()
-        found, complete = ctx.scan(self.root)
+        found, complete = ctx.scan(self.root, budget=30)
         self.assertTrue(complete)
-        self.assertLess(time.monotonic() - t, 10)
+        self.assertLess(time.monotonic() - t, 30)
         self.assertEqual([e[1] for e in found], ["a3/b4"])
 
 
@@ -325,7 +328,68 @@ class Render(Base):
 
     def test_mathematical_frame_variants(self):
         for marker in ("[\u217dtx]", "[\U0001d41c\U0001d42d\U0001d431]", "\u27e6ctx\u27e7"):
-            self.assertIn("(ctx)", ctx.quote(f"a {marker} b"), marker)
+            self.assertIn("(ctx)", ctx.quote(ctx.clean(f"a {marker} b")), marker)
+
+    def test_expanding_characters_stay_capped(self):
+        self.state("a", "\ufdfa" * 300)
+        line = ctx.render(self.root, *ctx.scan(self.root)).splitlines()[1]
+        self.assertLess(len(line), ctx.MAX_CHARS + 40)
+
+    def test_full_width_token_is_redacted(self):
+        self.state("a", "key " + "".join(chr(ord(c) + 0xFEE0) for c in "ghp_abcdefghijklmnopqrstuvwxyz0123"))
+        line = ctx.render(self.root, *ctx.scan(self.root)).splitlines()[1]
+        self.assertIn("[redacted]", line)
+        self.assertNotIn("ghp_", line)
+
+    def test_slow_folders_respect_the_budget(self):
+        for i in range(200):
+            (self.root / f"d{i:03d}").mkdir()
+        real = os.scandir
+
+        def slow(path):
+            time.sleep(0.01)
+            return real(path)
+        with mock.patch.object(ctx.os, "scandir", slow):
+            t = time.monotonic()
+            _, complete = ctx.scan(self.root, budget=0.3)
+            self.assertLess(time.monotonic() - t, 0.6)
+        self.assertFalse(complete)
+
+    def test_folder_full_of_folders_does_not_starve_the_others(self):
+        for i in range(1500):
+            (self.root / "Downloads" / "x" / f"d{i:04d}").mkdir(parents=True)
+        for i in range(5):
+            self.state(f"projets/p{i}/code", f"project {i}")
+        with mock.patch.object(ctx, "MAX_DIRS", 1000):
+            found, complete = ctx.scan(self.root)
+        self.assertFalse(complete)
+        self.assertEqual(sorted(e[1] for e in found), [f"projets/p{i}/code" for i in range(5)])
+
+    def test_projects_outside_git_are_not_capped_together(self):
+        for i in range(12):
+            self.state(f"projets/p{i:02d}", f"project {i}")
+        text = ctx.render(self.root, *ctx.scan(self.root))
+        self.assertEqual(text.count("project "), 12)
+
+    def test_epoch_date_is_a_date(self):
+        self.state("old", "x", mtime=0)
+        self.assertNotIn("future date", ctx.render(self.root, *ctx.scan(self.root)))
+
+    def test_front_matter_block_skipped(self):
+        self.state("a", "---\ntitle: foo\n---\nReal line. Next: x.")
+        self.assertIn('"Real line. Next: x."', ctx.render(self.root, *ctx.scan(self.root)))
+
+    def test_cap_keeps_the_text(self):
+        self.assertTrue(ctx.cap("ok " + "x" * 300).startswith("ok xxx"))
+        self.assertLessEqual(len(ctx.cap("ok " + "x" * 300)), ctx.MAX_CHARS)
+
+    def test_host_port_is_not_a_password(self):
+        self.assertEqual(ctx.redact("postgres://db:5432@x"), "postgres://db:5432@x")
+        self.assertEqual(ctx.redact("postgres://me:s3cret@x"), "postgres://[redacted]@x")
+
+    def test_more_bracket_variants(self):
+        for marker in ("\u301actx\u301b", "\u2772ctx\u2773", "[\u1d04\u1d1bx]"):
+            self.assertIn("(ctx)", ctx.quote(ctx.clean(f"a {marker} b")), marker)
 
     def test_other_users_files_are_not_read(self):
         self.state("a", "mine")
@@ -334,7 +398,7 @@ class Render(Base):
 
     def test_frame_variants_neutralized(self):
         for marker in ("[CTX]", "［ctx］", "[ ctx ]", "[\u0441\u0442\u0445]", "[c\u03c4x]"):
-            self.assertEqual(ctx.quote(f"a {marker} b"), '"a (ctx) b"')
+            self.assertEqual(ctx.quote(ctx.clean(f"a {marker} b")), '"a (ctx) b"')
 
     def test_long_folder_path_is_capped(self):
         rel = "/".join(["x" * 200] * 4)

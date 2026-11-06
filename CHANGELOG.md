@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.0.2 - 2026-11-06
+
+- The 200-character cap holds: text is normalized (NFKC) before redaction and capping, so expanding characters no
+  longer grow a line past it, and full-width tokens are redacted.
+- One folder cannot starve the others: the folders directly below the start folder are walked in turns, each with
+  its share of the time and of the 20000-folder cap; the time budget is checked before each folder read.
+- Outside git, entries are grouped one or two levels below the start folder (`projects/<p>`), so twelve projects
+  without a repository at their root are all shown.
+- An epoch date is a date (no longer "future date"); a front matter block is skipped; capping keeps the text when
+  the line has no early space; `host:port@` in a URL is not redacted; more look-alikes of `[ctx]` are neutralized.
+- Rule: update `STATE.md` when the folder's state changes (not after every file change); line 1 puts a blocker
+  first.
+- README: quick start, uninstall in full, real sample output, scan details as a list; measures moved to
+  `docs/measures.md` with the cases where ctx did worse.
+
 ## 2.0.1 - 2026-11-06
 
 - Rule: update `STATE.md` only when Status, Next or Decisions change; a touch-up (typo, comment, docstring,
@@ -29,6 +44,8 @@ one file that surfaces the first line of the `STATE.md` files below the session'
 - Community files: code of conduct, issue and pull request templates.
 
 ## 1.2.0 - 2026-11-06
+
+The 1.x entries describe branch `v1`, not this tree.
 
 Last release of the full design (1.x). Real use showed work under containers getting lost and containers
 injecting noise; three reviews then hardened and simplified the code.
