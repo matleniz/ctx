@@ -948,6 +948,41 @@ class Cli(Base):
         self.assertEqual(groups[0], mine)
         self.assertEqual(len(groups), 2)
 
+    def test_install_write_leaves_hand_made_commands(self):
+        path = self.root / "cfg" / "settings.json"
+        path.parent.mkdir()
+        for cmd in ("cd /w && python3 /old/ctx.py hook session-start", "FOO=1 python3 /old/ctx.py hook session-start",
+                    "echo ctx.py hook session-start", "python3 /old/ctx.py hook session-start 2>/dev/null"):
+            mine = {"hooks": [{"type": "command", "command": cmd}]}
+            path.write_text(json.dumps({"hooks": {"SessionStart": [mine]}}))
+            self.assertEqual(self.install()[0].returncode, 0, cmd)
+            groups = json.loads(path.read_text())["hooks"]["SessionStart"]
+            self.assertEqual(groups[0], mine, cmd)
+            self.assertEqual(len(groups), 2, cmd)
+
+    def test_install_write_never_follows_a_backup_link(self):
+        path = self.root / "cfg" / "settings.json"
+        path.parent.mkdir()
+        path.write_text("{}")
+        victim = self.root / "victim.txt"
+        victim.write_text("VICTIM")
+        path.with_name("settings.json.bak-ctx").symlink_to(victim)
+        p = self.install()[0]
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(victim.read_text(), "VICTIM")
+        self.assertIn("not refreshed", p.stdout)
+        self.assertNotIn("backup: ", p.stdout)
+
+    def test_install_write_odd_input_fails_cleanly(self):
+        path = self.root / "cfg" / "settings.json"
+        path.parent.mkdir()
+        for text in ('{"a": "\\ud800"}', "[" * 100000, '{"a": ' + "[" * 5000 + "]" * 5000 + "}"):
+            path.write_text(text)
+            p = self.install()[0]
+            self.assertEqual(p.returncode, 1, text[:20])
+            self.assertNotIn("Traceback", p.stderr, text[:20])
+            self.assertEqual(path.read_text(), text)
+
     def test_install_write_keeps_non_ascii_and_refuses_nan(self):
         path = self.root / "cfg" / "settings.json"
         path.parent.mkdir()

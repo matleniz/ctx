@@ -44,8 +44,10 @@ READ_BYTES = 4096
 UID = os.getuid() if hasattr(os, "getuid") else None  # only your own STATE.md files are read
 SKIP = {"node_modules", "venv", "env", "__pycache__", "dist", "build", "target", "site-packages"}
 HEADING = re.compile(r"^#+(\s+|$)")
-FRAME = re.compile(  # [ctx] in Latin, full-width, Cyrillic or Greek letters
-    r"[\[［【〔⟦〚❲⁅〘⟬<〈⟨]\s*[cｃＣсСᴄ][tｔＴтТτΤᴛ][xｘＸхХχΧ]\s*[\]］】〕⟧〛❳⁆〙⟭>〉⟩]", re.IGNORECASE)
+_M = "[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f]*"  # combining marks around letters
+FRAME = re.compile(  # [ctx] in Latin, full-width, Cyrillic or Greek letters, with or without combining marks
+    rf"[\[［【〔⟦〚❲⁅〘⟬<〈⟨]{_M}\s*[cｃＣсСᴄ]{_M}[tｔＴтТτΤᴛ]{_M}[xｘＸхХχΧ]{_M}\s*[\]］】〕⟧〛❳⁆〙⟭>〉⟩]",
+    re.IGNORECASE)
 _B = r"(?<![A-Za-z0-9_-])"  # a token starts at a word boundary: task-scheduler is not an sk- key
 SECRET = re.compile("|".join([  # known token formats and credentials in URLs; no entropy or key=value guessing
     # real sk- keys have 3 digits and a capital, branch names like sk-feature-x do not
@@ -322,7 +324,8 @@ def merge_hook(data: dict, cmd: str) -> dict:
             words = shlex.split(c) if isinstance(c, str) else []
         except ValueError:
             return False
-        return words[-2:] == ["hook", "session-start"] and any(Path(w).name == "ctx.py" for w in words[:-2])
+        return (len(words) == 4 and Path(words[0]).name.startswith("python") and Path(words[1]).name == "ctx.py"
+                and words[2:] == ["hook", "session-start"])
     data = copy.deepcopy(data)
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict) or not isinstance(hooks.setdefault("SessionStart", []), list):
@@ -349,10 +352,11 @@ def merge_hook(data: dict, cmd: str) -> dict:
 
 
 def _no_duplicate_keys(pairs):
-    keys = [k for k, _ in pairs]
-    dup = next((k for k in keys if keys.count(k) > 1), None)
-    if dup is not None:
-        raise ValueError(f"duplicate key {dup!r}")
+    seen = set()
+    for k, _ in pairs:
+        if k in seen:
+            raise ValueError(f"duplicate key {k!r}")
+        seen.add(k)
     return dict(pairs)
 
 
@@ -365,7 +369,7 @@ def install_write(path: Path) -> int:
             raise ValueError("top level is not an object")
         new = merge_hook(data, hook_command())
         text = json.dumps(new, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
-    except (OSError, ValueError) as exc:  # includes JSON and unicode errors
+    except (OSError, ValueError, RecursionError) as exc:  # includes JSON and unicode errors, absurd nesting
         print(f"ctx: {path}: {exc}; nothing written", file=sys.stderr)
         return 1
     if old is not None and new == data:
@@ -373,9 +377,10 @@ def install_write(path: Path) -> int:
         return 0
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        bak = Path(f"{path}.bak-ctx")
-        if old is not None and not bak.exists():  # the file as it was before the first install --write
+        bak, saved = Path(f"{path}.bak-ctx"), False
+        if old is not None and not os.path.lexists(bak):  # the file as it was before the first install --write
             shutil.copy2(path, bak)
+            saved = True
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -386,10 +391,14 @@ def install_write(path: Path) -> int:
         except BaseException:
             os.unlink(tmp)
             raise
-    except OSError as exc:
+    except (OSError, ValueError) as exc:  # ValueError: a lone surrogate cannot be written as UTF-8
         print(f"ctx: {path}: {exc}", file=sys.stderr)
         return 1
-    print(f"written: {path}" + (f"\nbackup: {bak}" if bak.exists() else ""))
+    print(f"written: {path}")
+    if saved:
+        print(f"backup: {bak}")
+    elif os.path.lexists(bak):
+        print(f"backup from an earlier run kept, not refreshed: {bak}")
     print(f"command: {hook_command()}")
     return 0
 
@@ -427,7 +436,12 @@ def main(argv: list[str]) -> int:
             print("ctx: --settings needs --write", file=sys.stderr)
             return 2
         if write:
-            return install_write(Path(settings).expanduser().resolve())
+            try:
+                path = Path(settings).expanduser().resolve()
+            except (OSError, RuntimeError) as exc:  # a symlink loop
+                print(f"ctx: {settings}: {exc}; nothing written", file=sys.stderr)
+                return 1
+            return install_write(path)
         print("Merge this into ~/.claude/settings.json, or run `ctx.py install --write` to do it.", file=sys.stderr)
         print(install_block())
         return 0

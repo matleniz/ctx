@@ -5,14 +5,16 @@
 From a first install on another computer: less defense, an install that writes, a README that reads once.
 
 - `install --write [--settings PATH]` merges the hook into `~/.claude/settings.json`: the file as it was before the
-  first run is saved as `settings.json.bak-ctx` (mode kept), only exact `ctx.py hook session-start` commands count as
-  ctx's, a second run changes nothing, a stale ctx command (moved clone, other Python) is replaced rather than
-  duplicated, and invalid JSON or a duplicated key is refused without writing.
+  first run is saved once as `settings.json.bak-ctx` (mode kept, never refreshed, a link there is not followed), a
+  second run changes nothing, a stale ctx command (moved clone, other Python) is replaced rather than duplicated,
+  and invalid JSON, a duplicated key or absurd nesting is refused without writing. Only a command of the form
+  `<python> <path>/ctx.py hook session-start` counts as ctx's; a hand-edited one is left alone.
 - `install` alone prints only the JSON block on stdout (the hint goes to stderr), so it can be piped.
 - Redaction keeps known token formats and `user:password@` in URLs only. The heuristics are gone: `password=`,
   `token=`, camelCase keys, `bearer`, 40-character base64 keys and long letter-and-digit runs now pass. Keep secrets
   out of `STATE.md`, as the rule says.
-- Invisible marks are a single character class; other combining marks (Thai, Devanagari) are kept.
+- Invisible marks are a single character class; other combining marks (Thai, Devanagari) are kept. The `[ctx]`
+  look-alike check also catches combining marks around its letters (`[c̲tx]`).
 - README rewritten in short sentences; the scan detail moves to `docs/scan.md`. The rule splits into a core rule
   and an optional block for git worktrees and monorepos. `docs/measures.md` says the 2.0 scripts were lost and
   gives the protocol.

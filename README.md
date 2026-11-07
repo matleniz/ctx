@@ -21,8 +21,8 @@ program.
    ```
 
    This merges the hook into `~/.claude/settings.json`. The file as it was before the first run is saved as
-   `settings.json.bak-ctx`. It is safe to run twice. `python3 ctx/ctx.py install` alone only prints the JSON block,
-   for you to merge by hand.
+   `settings.json.bak-ctx`, once: later runs do not refresh it. It is safe to run twice. `python3 ctx/ctx.py install`
+   alone only prints the JSON block, for you to merge by hand.
 
 2. Paste [the rule](#the-rule) into your `AGENTS.md`. Claude Code reads `CLAUDE.md`, not `AGENTS.md`. Add the line
    `@AGENTS.md` to `~/.claude/CLAUDE.md`, or paste the rule there. Other CLIs have their own file name.
@@ -41,7 +41,8 @@ program.
 `python3 ctx/ctx.py tree [dir]` prints in a terminal what a session started in `dir` receives.
 
 Moving the clone breaks the hook, silently. The hook points at the clone's path and at the Python that ran
-`install`. After a move, or if that Python is removed, run `install --write` again. It replaces the old command.
+`install`. After a move, or if that Python is removed, run `install --write` again. It replaces the old command
+if you did not edit it by hand (a `cd ... &&` or `2>/dev/null` added): then remove yours.
 
 ## STATE.md
 
