@@ -61,16 +61,18 @@ SECRET = re.compile("|".join([  # known token formats and credentials in URLs; n
 
 Entry = tuple[float, str, str, str]  # (mtime, relative path, first line, repository key or "")
 
+INVISIBLE = re.compile("[\ufe00-\ufe0f\U000e0100-\U000e01ef\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u2800]")
+
 
 def clean(text: str, normalize: bool = True) -> str:
     """One display line, normalized (NFKC) first so that nothing grows or changes after redaction and capping:
     undecodable bytes and non-printable characters (newlines included) become spaces. Invisible marks that stay
     printable after NFKC (variation selectors, U+034F, Hangul fillers, braille blank) are dropped, not spaced, so
-    "[c<VS>tx]" cannot dodge FRAME while looking like "[ctx]". Cost: all combining marks (Mn) go, e.g. in Thai."""
+    "[c<VS>tx]" cannot dodge FRAME while looking like "[ctx]". Other combining marks (Thai, Devanagari) stay."""
     text = text.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
     if normalize:
         text = unicodedata.normalize("NFKC", text)
-    text = "".join(c for c in text if unicodedata.category(c) != "Mn" and c not in "\u115f\u1160\u2800")
+    text = INVISIBLE.sub("", text)
     return " ".join("".join(c if c.isprintable() else " " for c in text).split())
 
 

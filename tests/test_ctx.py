@@ -1,4 +1,5 @@
 """Unit tests for ctx lite (standard library only): python3 -m unittest discover -s tests"""
+import unicodedata
 import importlib.util
 import json
 import shlex
@@ -69,6 +70,10 @@ class FirstLine(Base):
         for cp in marks:
             self.assertEqual(ctx.clean(f"[c{chr(cp)}tx]"), "[ctx]", hex(cp))
             self.assertIn("(ctx)", ctx.quote(ctx.clean(f"[c{chr(cp)}tx]")), hex(cp))
+
+    def test_other_combining_marks_are_kept(self):
+        for text in ("สวัสดี", "नमस्ते"):
+            self.assertEqual(ctx.clean(text), unicodedata.normalize("NFKC", text))
 
     def test_frontmatter_dash_line_skipped(self):
         self.assertEqual(self.line("---\nsummary here\n"), "summary here")
