@@ -763,7 +763,7 @@ class Hardening204(Base):
         d.mkdir()
         (d / "python3").symlink_to(sys.executable)
         p = subprocess.run([str(d / "python3"), str(CTX), "install"], capture_output=True, text=True, timeout=30)
-        cmd = json.loads(p.stdout[p.stdout.index("\n{") + 1:])["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        cmd = json.loads(p.stdout)["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         self.assertEqual(shlex.split(cmd)[0], str(d / "python3"))
 
 
@@ -811,7 +811,8 @@ class Cli(Base):
 
     def test_install_prints_only(self):
         p = self.run_ctx("install")
-        block = json.loads(p.stdout[p.stdout.index("\n{") + 1:])
+        self.assertIn("install --write", p.stderr)
+        block = json.loads(p.stdout)
         cmd = block["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         args = shlex.split(cmd)
         self.assertEqual(args[0], sys.executable)
@@ -824,8 +825,96 @@ class Cli(Base):
         d.mkdir()
         (d / "ctx.py").write_text(CTX.read_text())
         p = subprocess.run([sys.executable, str(d / "ctx.py"), "install"], capture_output=True, text=True, timeout=30)
-        cmd = json.loads(p.stdout[p.stdout.index("\n{") + 1:])["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        cmd = json.loads(p.stdout)["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         self.assertEqual(shlex.split(cmd)[1], str((d / "ctx.py").resolve()))
+
+    def install(self, *args, name="settings.json"):
+        env = {**os.environ, "HOME": str(self.root / "home")}
+        path = self.root / "cfg" / name
+        p = subprocess.run([sys.executable, str(CTX), "install", "--write", "--settings", str(path), *args],
+                           capture_output=True, text=True, cwd=self.root, env=env, timeout=30)
+        return p, path
+
+    def ctx_commands(self, path):
+        groups = json.loads(path.read_text())["hooks"]["SessionStart"]
+        return [h["command"] for g in groups for h in g["hooks"] if "ctx.py" in h["command"]]
+
+    def test_install_write_creates_file(self):
+        p, path = self.install()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(path.read_text()), json.loads(ctx.install_block()))
+        self.assertTrue(path.read_text().endswith("}\n"))
+        self.assertFalse(path.with_name("settings.json.bak-ctx").exists())
+
+    def test_install_write_keeps_other_keys_in_order(self):
+        path = self.root / "cfg" / "settings.json"
+        path.parent.mkdir()
+        path.write_text(json.dumps({"model": "x", "env": {"A": "1"}, "theme": "dark"}))
+        self.assertEqual(self.install()[0].returncode, 0)
+        data = json.loads(path.read_text())
+        self.assertEqual(list(data), ["model", "env", "theme", "hooks"])
+        self.assertEqual(data["env"], {"A": "1"})
+
+    def test_install_write_keeps_other_tools_hooks(self):
+        path = self.root / "cfg" / "settings.json"
+        path.parent.mkdir()
+        other = {"hooks": [{"type": "command", "command": "other-tool start"}]}
+        path.write_text(json.dumps({"hooks": {"SessionStart": [other], "Stop": [other]}}))
+        self.assertEqual(self.install()[0].returncode, 0)
+        hooks = json.loads(path.read_text())["hooks"]
+        self.assertEqual(hooks["SessionStart"][0], other)
+        self.assertEqual(hooks["Stop"], [other])
+        self.assertEqual(len(hooks["SessionStart"]), 2)
+
+    def test_install_write_is_idempotent(self):
+        p, path = self.install()
+        before = path.read_bytes()
+        p = self.install()[0]
+        self.assertEqual(p.returncode, 0)
+        self.assertIn(f"already installed: {path}", p.stdout)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertFalse(path.with_name("settings.json.bak-ctx").exists())
+
+    def test_install_write_replaces_stale_command(self):
+        path = self.root / "cfg" / "settings.json"
+        path.parent.mkdir()
+        stale = "/old/python /old/clone/ctx.py hook session-start"
+        other = {"hooks": [{"type": "command", "command": "other-tool"}]}
+        path.write_text(json.dumps({"hooks": {"SessionStart": [
+            {"hooks": [{"type": "command", "command": stale, "timeout": 30}]}, other,
+            {"hooks": [{"type": "command", "command": stale + " "}]}]}}))
+        original = path.read_bytes()
+        p = self.install()[0]
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(self.ctx_commands(path), [ctx.hook_command()])
+        groups = json.loads(path.read_text())["hooks"]["SessionStart"]
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(groups[0]["hooks"][0]["timeout"], 5)
+        self.assertEqual(groups[1], other)
+        self.assertEqual(path.with_name("settings.json.bak-ctx").read_bytes(), original)
+
+    def test_install_write_refuses_bad_files(self):
+        path = self.root / "cfg" / "settings.json"
+        path.parent.mkdir()
+        for text in ('{"hooks": {}, "hooks": {}}', '{"a": {"b": 1, "b": 2}}', "{not json", "[]",
+                     '{"hooks": []}', '{"hooks": {"SessionStart": {}}}'):
+            path.write_text(text)
+            p = self.install()[0]
+            self.assertEqual(p.returncode, 1, text)
+            self.assertEqual(path.read_text(), text)
+            self.assertEqual(sorted(x.name for x in path.parent.iterdir()), ["settings.json"], text)
+
+    def test_install_write_preserves_mode(self):
+        path = self.root / "cfg" / "settings.json"
+        path.parent.mkdir()
+        path.write_text("{}")
+        path.chmod(0o640)
+        self.assertEqual(self.install()[0].returncode, 0)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+
+    def test_install_unknown_option(self):
+        self.assertEqual(self.run_ctx("install", "--nope").returncode, 2)
+        self.assertEqual(self.run_ctx("install", "--write", "--settings").returncode, 2)
 
     def test_hook_relative_cwd_resolved(self):
         self.state("sub/x")

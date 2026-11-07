@@ -9,16 +9,21 @@ opening them. Python 3.10+ standard library only; nothing is written, nothing is
     ctx.py hook session-start   hook entry point (reads the hook JSON on stdin, always exits 0)
     ctx.py tree [DIR]           print the same lines for DIR (default: current folder)
     ctx.py install              print the settings.json block for Claude Code (writes nothing)
+    ctx.py install --write [--settings PATH]
+                                merge the hook into ~/.claude/settings.json (backup: <file>.bak-ctx)
     ctx.py --version            print the version
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
 import shlex
+import shutil
 import stat
 import sys
+import tempfile
 import time
 import unicodedata
 from collections import deque
@@ -305,11 +310,89 @@ def hook(event: str) -> int:
     return 0
 
 
-def install_block() -> str:
+def hook_command() -> str:
     python = shlex.quote(sys.executable) if sys.executable else "python3"  # the Python that ran install
-    cmd = f"{python} {shlex.quote(str(Path(__file__).resolve()))} hook session-start"
-    block = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": cmd, "timeout": 5}]}]}}
+    return f"{python} {shlex.quote(str(Path(__file__).resolve()))} hook session-start"
+
+
+def install_block() -> str:
+    block = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": hook_command(), "timeout": 5}]}]}}
     return json.dumps(block, indent=2)
+
+
+def merge_hook(data: dict, cmd: str) -> dict:
+    """Copy of settings `data` with the ctx SessionStart hook set to `cmd`: a stale ctx entry is updated, never duplicated."""
+    def ours(h) -> bool:
+        c = h.get("command") if isinstance(h, dict) else None
+        return isinstance(c, str) and "ctx.py" in c and "hook session-start" in c
+    data = copy.deepcopy(data)
+    hooks = data.setdefault("hooks", {})
+    if not isinstance(hooks, dict) or not isinstance(hooks.setdefault("SessionStart", []), list):
+        raise ValueError('"hooks" must be an object and "hooks.SessionStart" a list')
+    found, kept = False, []
+    for group in hooks["SessionStart"]:
+        items = group.get("hooks") if isinstance(group, dict) else None
+        if isinstance(items, list) and any(ours(h) for h in items):
+            rest = []
+            for h in items:
+                if ours(h):
+                    if found:
+                        continue
+                    h["command"], h["timeout"], found = cmd, 5, True
+                rest.append(h)
+            group["hooks"] = rest
+            if not rest:
+                continue  # a group left empty by the removal of duplicates
+        kept.append(group)
+    hooks["SessionStart"] = kept
+    if not found:
+        kept.append({"hooks": [{"type": "command", "command": cmd, "timeout": 5}]})
+    return data
+
+
+def _no_duplicate_keys(pairs):
+    keys = [k for k, _ in pairs]
+    dup = next((k for k in keys if keys.count(k) > 1), None)
+    if dup is not None:
+        raise ValueError(f"duplicate key {dup!r}")
+    return dict(pairs)
+
+
+def install_write(path: Path) -> int:
+    """Merge the hook into the settings file at `path` (backup, atomic write); 1 and nothing written on any doubt."""
+    try:
+        old = path.read_bytes() if path.exists() else None
+        data = {} if old is None else json.loads(old.decode("utf-8"), object_pairs_hook=_no_duplicate_keys)
+        if not isinstance(data, dict):
+            raise ValueError("top level is not an object")
+        new = merge_hook(data, hook_command())
+    except (OSError, ValueError) as exc:  # includes JSON and unicode errors
+        print(f"ctx: {path}: {exc}; nothing written", file=sys.stderr)
+        return 1
+    if old is not None and new == data:
+        print(f"already installed: {path}")
+        return 0
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if old is not None:
+            shutil.copyfile(path, f"{path}.bak-ctx")
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(new, f, indent=2)
+                f.write("\n")
+            if old is not None:
+                os.chmod(tmp, stat.S_IMODE(path.stat().st_mode))
+            os.replace(tmp, path)
+        except BaseException:
+            os.unlink(tmp)
+            raise
+    except OSError as exc:
+        print(f"ctx: {path}: {exc}", file=sys.stderr)
+        return 1
+    print(f"written: {path}" + (f"\nbackup: {path}.bak-ctx" if old is not None else ""))
+    print(f"command: {hook_command()}")
+    return 0
 
 
 def main(argv: list[str]) -> int:
@@ -331,13 +414,22 @@ def main(argv: list[str]) -> int:
         print(text or f"No {STATE} below {root}.")
         return 0
     if cmd == "install":
-        print("Merge this into ~/.claude/settings.json (ctx writes nothing):")
-        print("- no such file: mkdir -p ~/.claude, then save the block as it is;")
-        print('- a file without "hooks": add the "hooks" key below next to its other keys;')
-        print('- "hooks" without "SessionStart": add the "SessionStart" key inside that "hooks" object;')
-        print('- "SessionStart" already there: append the {"hooks": [...]} element of the list below to that list.')
-        print("Never write a second \"hooks\" key: the last one wins and the others are lost without an error.")
-        print("Check with: python3 -m json.tool ~/.claude/settings.json")
+        args, write, settings = list(rest), False, "~/.claude/settings.json"
+        while args:
+            opt = args.pop(0)
+            if opt == "--write":
+                write = True
+            elif opt == "--settings" and args:
+                settings = args.pop(0)
+            else:
+                print("ctx: usage: ctx.py install [--write [--settings PATH]]", file=sys.stderr)
+                return 2
+        if settings != "~/.claude/settings.json" and not write:
+            print("ctx: --settings needs --write", file=sys.stderr)
+            return 2
+        if write:
+            return install_write(Path(settings).expanduser().resolve())
+        print("Merge this into ~/.claude/settings.json, or run `ctx.py install --write` to do it.", file=sys.stderr)
         print(install_block())
         return 0
     print(f"ctx: unknown command {cmd!r} (see --help)", file=sys.stderr)
