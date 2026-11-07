@@ -15,8 +15,8 @@ From a first install on another computer: less defense, an install that writes, 
   out of `STATE.md`, as the rule says.
 - Invisible marks are a single character class; other combining marks (Thai, Devanagari) are kept. The `[ctx]`
   look-alike check runs again without combining marks (`[c̲tx]`, `[ćtx]`); a line where marks hid a marker is shown
-  without its marks. A ctx hook is recognized by its interpreter name (`python*`, `pypy*`, `py`, `graalpy`, ...) or
-  the Python running install.
+  without its marks. A ctx hook is recognized by its interpreter (a name starting with `py` or `graalpy`, or the
+  Python running install). The backup gets the original's exact mode.
 - README rewritten in short sentences; the scan detail moves to `docs/scan.md`. The rule splits into a core rule
   and an optional block for git worktrees and monorepos. `docs/measures.md` says the 2.0 scripts were lost and
   gives the protocol.

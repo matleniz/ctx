@@ -45,7 +45,6 @@ SKIP = {"node_modules", "venv", "env", "__pycache__", "dist", "build", "target",
 HEADING = re.compile(r"^#+(\s+|$)")
 FRAME = re.compile(  # [ctx] in Latin, full-width, Cyrillic or Greek letters (checked without combining marks)
     r"[\[［【〔⟦〚❲⁅〘⟬<〈⟨]\s*[cｃＣсСᴄ][tｔＴтТτΤᴛ][xｘＸхХχΧ]\s*[\]］】〕⟧〛❳⁆〙⟭>〉⟩]", re.IGNORECASE)
-PYTHON = re.compile(r"(?i)(python|pypy|py|graalpy|pyston)[0-9.]*(\.exe)?")  # interpreter names in a ctx hook
 _B = r"(?<![A-Za-z0-9_-])"  # a token starts at a word boundary: task-scheduler is not an sk- key
 SECRET = re.compile("|".join([  # known token formats and credentials in URLs; no entropy or key=value guessing
     # real sk- keys have 3 digits and a capital, branch names like sk-feature-x do not
@@ -79,7 +78,8 @@ def clean(text: str, normalize: bool = True) -> str:
 def quote(text: str) -> str:
     """A JSON string: quotes inside are escaped, the frame marker cannot appear verbatim, and neither can < or >
     (a closing tag would seem to end the block the host wraps the text in)."""
-    bare = "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) not in ("Mn", "Me"))
+    bare = unicodedata.normalize("NFC", "".join(
+        c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) not in ("Mn", "Me")))
     if len(FRAME.findall(bare)) > len(FRAME.findall(text)):  # a marker hidden by marks: show the line without them
         text = bare
     return json.dumps(FRAME.sub("(ctx)", text), ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
@@ -325,8 +325,9 @@ def merge_hook(data: dict, cmd: str) -> dict:
             words = shlex.split(c) if isinstance(c, str) else []
         except ValueError:
             return False
-        return (len(words) == 4 and (words[0] == sys.executable or bool(PYTHON.fullmatch(Path(words[0]).name)))
-                and Path(words[1]).name == "ctx.py" and words[2:] == ["hook", "session-start"])
+        if len(words) != 4 or not words[0] or words[2:] != ["hook", "session-start"] or Path(words[1]).name != "ctx.py":
+            return False
+        return words[0] == sys.executable or Path(words[0]).name.lower().startswith(("py", "graalpy"))  # any Python
     data = copy.deepcopy(data)
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict) or not isinstance(hooks.setdefault("SessionStart", []), list):
@@ -387,6 +388,8 @@ def install_write(path: Path) -> int:
                 fd = None
             if fd is not None:
                 try:
+                    if hasattr(os, "fchmod"):  # the exact mode of the original, whatever the umask
+                        os.fchmod(fd, stat.S_IMODE(path.stat().st_mode))
                     with os.fdopen(fd, "wb") as f:
                         f.write(old)
                 except BaseException:

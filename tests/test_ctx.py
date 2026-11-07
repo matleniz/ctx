@@ -82,6 +82,8 @@ class FirstLine(Base):
             for text in (f"[c{mark}tx]", f"[ {mark}ctx]", f"[ctx {mark}]", f"[{mark}ctx]", f"ok [c{mark}t{mark}x] go"):
                 self.assertIn("(ctx)", ctx.quote(ctx.clean(text)), repr(text))
         self.assertEqual(ctx.quote("Été [ctx] déployé"), '"Été (ctx) déployé"')
+        hangul = ctx.cap(ctx.clean("한" * 190 + " [c\u0332tx]"))
+        self.assertLessEqual(len(json.loads(ctx.quote(hangul))), len(hangul))
 
     def test_frontmatter_dash_line_skipped(self):
         self.assertEqual(self.line("---\nsummary here\n"), "summary here")
@@ -932,6 +934,11 @@ class Cli(Base):
         self.assertEqual(self.install()[0].returncode, 0)
         self.assertEqual(path.stat().st_mode & 0o777, 0o640)
         self.assertEqual(path.with_name("settings.json.bak-ctx").stat().st_mode & 0o777, 0o640)
+        path.with_name("settings.json.bak-ctx").unlink()
+        path.write_text("{}")
+        path.chmod(0o666)  # wider than the umask lets a new file be
+        self.assertEqual(self.install()[0].returncode, 0)
+        self.assertEqual(path.with_name("settings.json.bak-ctx").stat().st_mode & 0o777, 0o666)
 
     def test_install_write_keeps_the_first_backup(self):
         path = self.root / "cfg" / "settings.json"
@@ -958,7 +965,8 @@ class Cli(Base):
 
     def test_install_write_knows_other_interpreter_names(self):
         for py in ("/usr/bin/pypy3", "/usr/bin/py", "/Applications/X/Contents/MacOS/Python", "/opt/my dir/python3.12",
-                   "graalpy", "python3"):
+                   "graalpy", "python3", "python3-dbg", "python3.12d", "python3t", "python3.13t", "pythonw",
+                   "pythonw.exe", "python3.12m", "pypy3.10-v7.3", "pyston-lite", "py.exe", sys.executable):
             cmd = f"{shlex.quote(py)} /old/clone/ctx.py hook session-start"
             data = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": cmd}]}]}}
             groups = ctx.merge_hook(data, "NEW")["hooks"]["SessionStart"]
