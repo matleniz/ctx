@@ -20,8 +20,9 @@ program.
    python3 ctx/ctx.py install --write
    ```
 
-   This merges the hook into `~/.claude/settings.json`. The old file is saved as `settings.json.bak-ctx`. It is
-   safe to run twice. `python3 ctx/ctx.py install` alone only prints the JSON block, for you to merge by hand.
+   This merges the hook into `~/.claude/settings.json`. The file as it was before the first run is saved as
+   `settings.json.bak-ctx`. It is safe to run twice. `python3 ctx/ctx.py install` alone only prints the JSON block,
+   for you to merge by hand.
 
 2. Paste [the rule](#the-rule) into your `AGENTS.md`. Claude Code reads `CLAUDE.md`, not `AGENTS.md`. Add the line
    `@AGENTS.md` to `~/.claude/CLAUDE.md`, or paste the rule there. Other CLIs have their own file name.
@@ -161,7 +162,7 @@ stand. Figures, protocol and the cases where ctx did worse: [docs/measures.md](d
 ## Uninstall
 
 Remove the `SessionStart` entry from `~/.claude/settings.json` (`settings.json.bak-ctx` is the file as it was before
-`install --write`). Remove the rule from your `AGENTS.md` (or `CLAUDE.md`). If you want, remove the `STATE.md` line
+the first `install --write`). Remove the rule from your `AGENTS.md` (or `CLAUDE.md`). If you want, remove the `STATE.md` line
 of your global git exclude. Your `STATE.md` files are yours.
 
 ## License

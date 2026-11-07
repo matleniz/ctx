@@ -318,7 +318,11 @@ def merge_hook(data: dict, cmd: str) -> dict:
     """Copy of settings `data` with the ctx SessionStart hook set to `cmd`: a stale ctx entry is updated, never duplicated."""
     def ours(h) -> bool:
         c = h.get("command") if isinstance(h, dict) else None
-        return isinstance(c, str) and "ctx.py" in c and "hook session-start" in c
+        try:
+            words = shlex.split(c) if isinstance(c, str) else []
+        except ValueError:
+            return False
+        return words[-2:] == ["hook", "session-start"] and any(Path(w).name == "ctx.py" for w in words[:-2])
     data = copy.deepcopy(data)
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict) or not isinstance(hooks.setdefault("SessionStart", []), list):
@@ -360,6 +364,7 @@ def install_write(path: Path) -> int:
         if not isinstance(data, dict):
             raise ValueError("top level is not an object")
         new = merge_hook(data, hook_command())
+        text = json.dumps(new, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
     except (OSError, ValueError) as exc:  # includes JSON and unicode errors
         print(f"ctx: {path}: {exc}; nothing written", file=sys.stderr)
         return 1
@@ -368,13 +373,13 @@ def install_write(path: Path) -> int:
         return 0
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        if old is not None:
-            shutil.copyfile(path, f"{path}.bak-ctx")
+        bak = Path(f"{path}.bak-ctx")
+        if old is not None and not bak.exists():  # the file as it was before the first install --write
+            shutil.copy2(path, bak)
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(new, f, indent=2)
-                f.write("\n")
+                f.write(text)
             if old is not None:
                 os.chmod(tmp, stat.S_IMODE(path.stat().st_mode))
             os.replace(tmp, path)
@@ -384,7 +389,7 @@ def install_write(path: Path) -> int:
     except OSError as exc:
         print(f"ctx: {path}: {exc}", file=sys.stderr)
         return 1
-    print(f"written: {path}" + (f"\nbackup: {path}.bak-ctx" if old is not None else ""))
+    print(f"written: {path}" + (f"\nbackup: {bak}" if bak.exists() else ""))
     print(f"command: {hook_command()}")
     return 0
 

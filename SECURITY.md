@@ -2,7 +2,7 @@
 
 The hook writes nothing, sends nothing over the network, runs no program and never opens a `.git` folder. Only `ctx.py
 install --write` writes a file: it merges the hook into `~/.claude/settings.json` (or the `--settings` path), after
-saving the old file as `.bak-ctx`, and writes nothing if the file is not valid JSON. The hook reads the first 4 KB of
+saving the file as it was before the first run as `.bak-ctx`, and writes nothing if the file is not valid JSON. The hook reads the first 4 KB of
 each regular `STATE.md` file you own (with a single name: hard links are skipped) below the session's folder (opened
 without following links and without blocking; symlinked folders are not entered) and prints the first non-empty line
 of each, normalized (NFKC), flattened to one line, with known token formats and `user:password@` URLs redacted, capped

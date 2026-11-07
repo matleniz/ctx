@@ -923,6 +923,40 @@ class Cli(Base):
         path.chmod(0o640)
         self.assertEqual(self.install()[0].returncode, 0)
         self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(path.with_name("settings.json.bak-ctx").stat().st_mode & 0o777, 0o640)
+
+    def test_install_write_keeps_the_first_backup(self):
+        path = self.root / "cfg" / "settings.json"
+        path.parent.mkdir()
+        path.write_text('{"a": 1}')
+        self.install()
+        data = json.loads(path.read_text())
+        data["a"] = 2
+        data["hooks"]["SessionStart"][0]["hooks"][0]["command"] = "/old/python /old/ctx.py hook session-start"
+        path.write_text(json.dumps(data))
+        self.assertEqual(self.install()[0].returncode, 0)
+        self.assertEqual(path.with_name("settings.json.bak-ctx").read_text(), '{"a": 1}')
+
+    def test_install_write_leaves_look_alike_commands(self):
+        path = self.root / "cfg" / "settings.json"
+        path.parent.mkdir()
+        mine = {"hooks": [{"type": "command", "command": "python3 /opt/mectx.py hook session-start --foo",
+                           "timeout": 30}]}
+        path.write_text(json.dumps({"hooks": {"SessionStart": [mine]}}))
+        self.assertEqual(self.install()[0].returncode, 0)
+        groups = json.loads(path.read_text())["hooks"]["SessionStart"]
+        self.assertEqual(groups[0], mine)
+        self.assertEqual(len(groups), 2)
+
+    def test_install_write_keeps_non_ascii_and_refuses_nan(self):
+        path = self.root / "cfg" / "settings.json"
+        path.parent.mkdir()
+        path.write_text('{"name": "é日本"}', encoding="utf-8")
+        self.assertEqual(self.install()[0].returncode, 0)
+        self.assertIn("é日本", path.read_text(encoding="utf-8"))
+        path.write_text('{"x": NaN}')
+        self.assertEqual(self.install()[0].returncode, 1)
+        self.assertEqual(path.read_text(), '{"x": NaN}')
 
     def test_install_unknown_option(self):
         self.assertEqual(self.run_ctx("install", "--nope").returncode, 2)

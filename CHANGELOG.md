@@ -4,8 +4,9 @@
 
 From a first install on another computer: less defense, an install that writes, a README that reads once.
 
-- `install --write [--settings PATH]` merges the hook into `~/.claude/settings.json`: the old file is saved as
-  `settings.json.bak-ctx`, a second run changes nothing, a stale ctx command (moved clone, other Python) is
+- `install --write [--settings PATH]` merges the hook into `~/.claude/settings.json`: the file as it was before the
+  first run is saved as `settings.json.bak-ctx` (mode kept), only exact `ctx.py hook session-start` commands count as
+  ctx's, a second run changes nothing, a stale ctx command (moved clone, other Python) is
   replaced rather than duplicated, and invalid JSON or a duplicated key is refused without writing.
 - `install` alone prints only the JSON block on stdout (the hint goes to stderr), so it can be piped.
 - Redaction keeps known token formats and `user:password@` in URLs only. The heuristics are gone: `password=`,
