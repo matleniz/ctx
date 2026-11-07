@@ -61,7 +61,14 @@ class FirstLine(Base):
 
     def test_invisible_selectors_removed(self):
         hidden = "".join(chr(0xE0100 + i) for i in range(12)) + "\ufe0f\u3164\uffa0"
-        self.assertEqual(self.line(f"ok{hidden}done"), "ok done")
+        self.assertEqual(self.line(f"ok{hidden}done"), "okdone")
+
+    def test_every_invisible_mark_is_dropped_so_frame_still_matches(self):
+        marks = [*range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0), 0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5,
+                 *range(0x180B, 0x180E), 0x180F, 0x2800, 0x3164, 0xFFA0]
+        for cp in marks:
+            self.assertEqual(ctx.clean(f"[c{chr(cp)}tx]"), "[ctx]", hex(cp))
+            self.assertIn("(ctx)", ctx.quote(ctx.clean(f"[c{chr(cp)}tx]")), hex(cp))
 
     def test_frontmatter_dash_line_skipped(self):
         self.assertEqual(self.line("---\nsummary here\n"), "summary here")
@@ -256,7 +263,7 @@ class Render(Base):
         cases = {
             "sk_live_" + "a1B2c3D4e5F6g7H8": True, "glpat-abcdefghij0123456789": True,
             "hf_abcdefghijklmnopqrstuv12": True, "https://user:hunter2@host/x": True,
-            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig": True, "a" * 20 + "1" * 20: True,
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig": True,
             "src/components/navigation/sidebar-menu-item.tsx": False, "commit 87cab18 merged": False,
         }
         for text, secret in cases.items():
@@ -291,8 +298,7 @@ class Render(Base):
                      "max_tokens=4096", "Token : budget 160k", "Mot de passe : réinitialisation livrée",
                      "Secretary: email sent", "tokens: 450k"):
             self.assertEqual(ctx.redact(text), text)
-        for text in ("Authorization: Bearer AbCdEf123GhIjK456lMnOp", "npm_abcdefghijklmnopqrstuvwxyz"):
-            self.assertIn("[redacted]", ctx.redact(text), text)
+        self.assertIn("[redacted]", ctx.redact("npm_abcdefghijklmnopqrstuvwxyz"))
 
     def test_fake_repositories_in_one_folder_cannot_evict_others(self):
         now = time.time()
@@ -677,10 +683,8 @@ class Hardening(Base):
         self.assertIn('"a" (', ctx.render(self.root, *ctx.scan(self.root)))
 
     def test_more_secret_shapes(self):
-        for text, gone in [("AWS wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "K7MDENG"),
-                           ("postgres://admin:pa/ss1234word@db.internal/prod", "1234"),
-                           ("postgres://admin:p@ssw0rd-secret@db.internal/x", "ssw0rd"),
-                           ("password: Hunter2Hunter2", "Hunter2"), ("api_key=3f2a9c8d1e2f3a4b", "3f2a")]:
+        for text, gone in [("postgres://admin:pa/ss1234word@db.internal/prod", "1234"),
+                           ("postgres://admin:p@ssw0rd-secret@db.internal/x", "ssw0rd")]:
             self.assertNotIn(gone, ctx.redact(text), text)
         for text in ("Token : budget 160k", "see https://host:443/a/b and me@example.com", "https://h:80/x@y",
                      "http://localhost:3000/@scope/pkg",
@@ -688,7 +692,7 @@ class Hardening(Base):
             self.assertEqual(ctx.redact(text), text)
 
     def test_mongolian_selectors_removed(self):
-        self.assertEqual(ctx.clean("a᠋b᠏c"), "a b c")
+        self.assertEqual(ctx.clean("a᠋b᠏c"), "abc")
 
 
 class Hardening204(Base):
@@ -697,13 +701,9 @@ class Hardening204(Base):
     SECRETS = [  # one example per pattern, each caught by that pattern alone
         "sk-Ab1cD2eF3gH4iJ5kL6mN", "sk_live_abcdef1234", "rk_test_abcdef1234", "ghp_abcdefghij0123456789",
         "github_pat_11ABCDEFG0abcdefghij_klm", "glpat-abcdEFGH1234ijkl", "hf_abcdefghijKLMNOP1234",
-        "npm_abcdefghijKLMNOP1234", "r8_abcdefghijKLMNOP1234abcdefghij", "xoxb-1234567890-abc",
+        "npm_abcdefghijKLMNOP1234", "xoxb-1234567890-abc",
         "AKIAIOSFODNN7EXAMPLE", "AIzaSyA1234567890abcdefghijklmnopq", "hooks.slack.com/services/T000/B000/XXXX",
-        "Bearer abcDEF123ghiJKL456mno", "eyJhbGciOiJI.eyJzdWIiOiIx.sig", "-----BEGIN RSA PRIVATE KEY-----",
-        "postgres://u:pw12ab@h/x", "password: hunter22", "passwd=hunter22", "pwd=hunter22", "secret: s3cr3tval",
-        "token=t0k3nval", "api-key: k3yvalue", "apikey=k3yvalue", "mot de passe : hunter22", "mdp=hunter22",
-        "clientSecret=abc123def", "apiToken: Zx9kQ2w8", "accessKey=AbC123dEf", "userPassword=hunter22",
-        "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "a1" * 20, "gsk_" + "aB3" * 14,
+        "eyJhbGciOiJI.eyJzdWIiOiIx.sig", "-----BEGIN RSA PRIVATE KEY-----", "postgres://u:pw12ab@h/x",
     ]
 
     def test_each_secret_pattern(self):
@@ -715,6 +715,13 @@ class Hardening204(Base):
     def test_look_alikes_kept(self):
         for text in ("task-sk-AbcDef123GhiJkl456Mno", "Token : budget 160k", "secret: rotate by 2026",
                      "sortKey=asc", "monkey=banana12", "pwd=ab12", "cacheKey=user42a"):
+            self.assertEqual(ctx.redact(text), text)
+
+    def test_heuristics_are_gone(self):
+        # documented: only known token formats and URL passwords are redacted, never key=value or random runs
+        for text in ("password=abc123", "password: hunter22", "api_key=3f2a9c8d1e2f3a4b", "Bearer abcDEF123ghiJKL456mno",
+                     "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "a1" * 20, "gsk_" + "aB3" * 14,
+                     "r8_abcdefghijKLMNOP1234abcdefghij"):
             self.assertEqual(ctx.redact(text), text)
 
     def test_tags_cannot_be_closed(self):
