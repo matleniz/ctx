@@ -42,39 +42,31 @@ HEADING = re.compile(r"^#+(\s+|$)")
 FRAME = re.compile(  # [ctx] in Latin, full-width, Cyrillic or Greek letters
     r"[\[［【〔⟦〚❲⁅〘⟬<〈⟨]\s*[cｃＣсСᴄ][tｔＴтТτΤᴛ][xｘＸхХχΧ]\s*[\]］】〕⟧〛❳⁆〙⟭>〉⟩]", re.IGNORECASE)
 _B = r"(?<![A-Za-z0-9_-])"  # a token starts at a word boundary: task-scheduler is not an sk- key
-SECRET = re.compile("|".join([  # known token formats, credentials in URLs, long random runs
-    # sk- and bearer values need 3 digits and a capital: real keys have both, branch names do not
+SECRET = re.compile("|".join([  # known token formats and credentials in URLs; no entropy or key=value guessing
+    # real sk- keys have 3 digits and a capital, branch names like sk-feature-x do not
     _B + r"sk-(?=(?:[^0-9\s]*[0-9]){3})(?=\S*[A-Z])[A-Za-z0-9_-]{20,}",
     _B + r"[sr]k_(?:live|test)_[A-Za-z0-9]{10,}", _B + r"gh[pousr]_[A-Za-z0-9]{20,}",
     _B + r"github_pat_[A-Za-z0-9_]{20,}", _B + r"glpat-[A-Za-z0-9_-]{16,}", _B + r"hf_[A-Za-z0-9]{20,}",
-    _B + r"npm_[A-Za-z0-9]{20,}", _B + r"r8_[A-Za-z0-9]{30,}", _B + r"xox[abprs]-[A-Za-z0-9-]{10,}",
+    _B + r"npm_[A-Za-z0-9]{20,}", _B + r"xox[abprs]-[A-Za-z0-9-]{10,}",
     _B + r"AKIA[0-9A-Z]{16}",
     _B + r"AIza[0-9A-Za-z_-]{30,}", r"hooks\.slack\.com/\S+",
-    r"(?i:bearer)\s+(?=(?:[^0-9\s]*[0-9]){3})(?=\S*[A-Z])[A-Za-z0-9._~+/-]{20,}=*",
     _B + r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?", r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     # user:password@host: the password runs to the last @ before the host, so it may hold / or @
-    r"(?<=://)[^/\s:@]*:(?![0-9]+[/?#])\S*?(?=@[^\s/@]*(?:[/?#\s]|$))",  # host:port/path@x is not a password
-    # password: x1y2z3, also camelCase (clientSecret=, apiKey=); the value needs letters and digits
-    r"(?:(?<![A-Za-z0-9])(?i:password|passwd|pwd|secret|token|(?:api|access|private|secret|client)[_-]?key"
-    r"|mot\s+de\s+passe|mdp)|(?<=[a-z0-9])(?:Password|Passwd|Pwd|Secret|Token))\s*[:=]\s*(?=\S*[0-9])(?=\S*[A-Za-z])\S{6,}",
-    # 40 base64 characters with all three classes (an AWS secret key), bounded so a longer path is not cut
-    r"(?<![A-Za-z0-9/+._-])(?=[A-Za-z0-9/+]*[0-9])(?=[A-Za-z0-9/+]*[a-z])(?=[A-Za-z0-9/+]*[A-Z])"
-    r"[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+._=-])",
-    # runs of 40+ letters and digits, also after an underscore (gsk_..., dop_v1_...)
-    r"(?<![A-Za-z0-9])(?=[A-Za-z0-9]*[0-9])(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{40,}(?![A-Za-z0-9])"]))
+    r"(?<=://)[^/\s:@]*:(?![0-9]+[/?#])\S*?(?=@[^\s/@]*(?:[/?#\s]|$))"]))  # host:port/path@x is not a password
 
 Entry = tuple[float, str, str, str]  # (mtime, relative path, first line, repository key or "")
-INVISIBLE = set(range(0xFE00, 0xFE10)) | set(range(0xE0100, 0xE01F0)) | {
-    0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180F, 0x2800, 0x3164, 0xFFA0}
 
 
 def clean(text: str, normalize: bool = True) -> str:
     """One display line, normalized (NFKC) first so that nothing grows or changes after redaction and capping:
-    undecodable bytes and non-printable characters (newlines included) become spaces."""
+    undecodable bytes and non-printable characters (newlines included) become spaces. Invisible marks that stay
+    printable after NFKC (variation selectors, U+034F, Hangul fillers, braille blank) are dropped, not spaced, so
+    "[c<VS>tx]" cannot dodge FRAME while looking like "[ctx]". Cost: all combining marks (Mn) go, e.g. in Thai."""
     text = text.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
     if normalize:
         text = unicodedata.normalize("NFKC", text)
-    return " ".join("".join(c if c.isprintable() and ord(c) not in INVISIBLE else " " for c in text).split())
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn" and c not in "\u115f\u1160\u2800")
+    return " ".join("".join(c if c.isprintable() else " " for c in text).split())
 
 
 def quote(text: str) -> str:
