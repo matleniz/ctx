@@ -4,7 +4,7 @@
 Each working folder keeps a STATE.md written by the agent itself (the rule lives in AGENTS.md).
 Its first line is a one-sentence summary. A session started in a parent folder receives those
 first lines through a SessionStart hook, so it sees where every folder below stands without
-opening them. Python 3.10+ standard library only; nothing is written, nothing is kept.
+opening them. Python 3.10+ standard library only; the hook writes nothing (only `install --write` does).
 
     ctx.py hook session-start   hook entry point (reads the hook JSON on stdin, always exits 0)
     ctx.py tree [DIR]           print the same lines for DIR (default: current folder)
@@ -30,7 +30,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-VERSION = "2.0.4"
+VERSION = "2.1.0"
 STATE = "STATE.md"
 MAX_DEPTH = 4          # levels below the start folder (~/projects/<p>/wt/<branch> is level 4)
 MAX_LINES = 30         # entries shown

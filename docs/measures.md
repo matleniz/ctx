@@ -1,7 +1,9 @@
 # Measures
 
 All figures are indicative: small samples, one session model (Claude Haiku), one blind judge (Claude Sonnet), runs
-on 5 and 6 November 2026. The scripts are not published yet. Version 1 figures and method: [Measured in the 1.2.0
+on 5 and 6 November 2026. The v2 scripts ran in temporary folders and were lost, so the figures cannot be
+reproduced as they stand; the [protocol](#protocol) below says how to redo them. Version 1 figures and method:
+[Measured in the 1.2.0
 README](https://github.com/matleniz/ctx/blob/v1/README.md#measured) and the
 [long-run method](https://github.com/matleniz/ctx/blob/v1/docs/benchmark-longrun.md).
 
@@ -53,3 +55,56 @@ state (a decision, a new deadline, progress) still recorded it.
 
 Over 10 sessions the file grew to about 28 lines and 4 KB, about one decision per session, and no chain removed a
 decision.
+
+## Protocol
+
+How to redo the runs. Everything here comes from the tables above and the notes of the runs; nothing else was kept.
+
+**Arms.** "ctx": the `STATE.md` rule (2.0.0 text for the tables above) and the hook. "nothing": no rule, no hook.
+For the questions asked from a parent folder, a third arm has the same `STATE.md` files but no hook. Version 1 runs
+had one arm per version, plus a plain-rule arm without any tool.
+
+**Sessions.** Each session is a new process of the session model (Claude Haiku), started in the folder. A chain is
+10 sessions in a row on the same folder, so each one starts from what the previous one left. The home folder is
+temporary and the hooks are given per run, so a real configuration is never touched. 3 chains per arm and scenario.
+
+**Scenarios.** Two synthetic folders:
+
+- course notebooks: exercises to finish, one per session;
+- small project: a Python package with tests and a TODO list.
+
+Each chain follows the same script:
+
+1. s01: first look at the folder and first task.
+2. s03 or s04: the user states an explicit decision (a convention to follow from then on).
+3. s06: a bug is injected in the code.
+4. s07: resume. The prompt is a plain "where are we?", with no task given.
+5. s09: a change that must follow the decision of s03 or s04.
+6. s10: a final summary.
+
+**Judge.** Claude Sonnet, blind to the arm. It gets the session's answer and the files, and scores continuity out of
+9:
+pickup, respect of earlier decisions and consistency, 0-3 each. The arm label and the name of the notes file are
+masked from the judge; a name that collides with a real file name leaks the arm (it did once, and the answers were
+judged again). Report: continuity, the s07 resume score and turns, whether the injected bug is fixed, items done out
+of 8 after 10 sessions, tokens read per session.
+
+**Resuming real folders.** Copies of 5 real course and project folders, with a `STATE.md` written for each. A read-
+only
+session asks for a generic resume. The judge scores the status and the next step out of 3 against the ground truth:
+the files, a dated listing, and the agent's own memory notes. Record turns and tokens.
+
+**Short task.** 8 runs per arm on a copy of such a folder: one one-line change. Record whether it was done, turns and
+tokens. For the 2.0.1 line: 6 pure touch-ups and 8 state-changing tasks, count how often `STATE.md` was updated.
+
+**Parent-folder questions.** A tree of several folders, 6 questions whose answers sit in the first lines (what is
+blocked, what is next, which folder has a given decision), 18 runs per arm. Score the share of right answers, and
+record turns and tokens. The no-hook arm is run on the same tree.
+
+**Statistics.** Report means per arm. With small samples, group by folder (the statistical unit is the folder, not
+the session), and give a bootstrap interval or a sign test rather than a bare mean. Two judges (a second model)
+give a useful check of the first judge's scale.
+
+**Pitfalls seen.** An arm "without" must hide every notes file: a renamed file is still found by a file listing
+that shows hidden files (18 of 80 sessions found it). A stale `Next` can be believed without any check; the rule
+now says to verify before acting. A session with no change to the folder is never recorded, by design.

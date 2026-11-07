@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.1.0 - 2026-11-07
+
+From a first install on another computer: less defense, an install that writes, a README that reads once.
+
+- `install --write [--settings PATH]` merges the hook into `~/.claude/settings.json`: the old file is saved as
+  `settings.json.bak-ctx`, a second run changes nothing, a stale ctx command (moved clone, other Python) is
+  replaced rather than duplicated, and invalid JSON or a duplicated key is refused without writing.
+- `install` alone prints only the JSON block on stdout (the hint goes to stderr), so it can be piped.
+- Redaction keeps known token formats and `user:password@` in URLs only. The heuristics are gone: `password=`,
+  `token=`, camelCase keys, `bearer`, 40-character base64 keys and long letter-and-digit runs now pass. Keep secrets
+  out of `STATE.md`, as the rule says.
+- Invisible marks are a single character class; other combining marks (Thai, Devanagari) are kept.
+- README rewritten in short sentences; the scan detail moves to `docs/scan.md`. The rule splits into a core rule
+  and an optional block for git worktrees and monorepos. `docs/measures.md` says the 2.0 scripts were lost and
+  gives the protocol.
+
 ## 2.0.4 - 2026-11-06
 
 Second adversarial review round on 2.0.3.
