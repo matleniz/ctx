@@ -54,8 +54,8 @@ Applied to each first line, and to the folder names (names are also capped at 12
 4. Capped at 200 characters as written. Normalization can make a line longer (`…` becomes `...`); up to 20
    characters of that growth are allowed. The cut is made on a space when one is in the second half.
 5. Shown as a JSON string. Quotes are escaped, `<` and `>` become `\u003c` and `\u003e` (no tag can be closed), and
-   look-alikes of the `[ctx]` marker (other brackets, full-width, Cyrillic or Greek letters, combining marks around
-   the letters) become `(ctx)`.
+   look-alikes of the `[ctx]` marker (other brackets, full-width, Cyrillic or Greek letters, combining marks:
+   a line where marks hide a marker is shown without its marks) become `(ctx)`.
 
 ## Time
 

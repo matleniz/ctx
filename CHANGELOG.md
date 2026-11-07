@@ -14,7 +14,9 @@ From a first install on another computer: less defense, an install that writes, 
   `token=`, camelCase keys, `bearer`, 40-character base64 keys and long letter-and-digit runs now pass. Keep secrets
   out of `STATE.md`, as the rule says.
 - Invisible marks are a single character class; other combining marks (Thai, Devanagari) are kept. The `[ctx]`
-  look-alike check also catches combining marks around its letters (`[c̲tx]`).
+  look-alike check runs again without combining marks (`[c̲tx]`, `[ćtx]`); a line where marks hid a marker is shown
+  without its marks. A ctx hook is recognized by its interpreter name (`python*`, `pypy*`, `py`, `graalpy`, ...) or
+  the Python running install.
 - README rewritten in short sentences; the scan detail moves to `docs/scan.md`. The rule splits into a core rule
   and an optional block for git worktrees and monorepos. `docs/measures.md` says the 2.0 scripts were lost and
   gives the protocol.

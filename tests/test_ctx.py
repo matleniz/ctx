@@ -74,6 +74,14 @@ class FirstLine(Base):
     def test_other_combining_marks_are_kept(self):
         for text in ("สวัสดี", "नमस्ते"):
             self.assertEqual(ctx.clean(text), unicodedata.normalize("NFKC", text))
+            self.assertEqual(ctx.quote(ctx.clean(text)), json.dumps(ctx.clean(text), ensure_ascii=False))
+
+    def test_combining_marks_cannot_hide_the_frame(self):
+        for mark in ("\u0332", "\u0301", "\u0e47", "\u0489", "\u0483", "\u064b", "\u3099", "\u0f71", "\u093c",
+                     "\u20dd"):
+            for text in (f"[c{mark}tx]", f"[ {mark}ctx]", f"[ctx {mark}]", f"[{mark}ctx]", f"ok [c{mark}t{mark}x] go"):
+                self.assertIn("(ctx)", ctx.quote(ctx.clean(text)), repr(text))
+        self.assertEqual(ctx.quote("Été [ctx] déployé"), '"Été (ctx) déployé"')
 
     def test_frontmatter_dash_line_skipped(self):
         self.assertEqual(self.line("---\nsummary here\n"), "summary here")
@@ -947,6 +955,16 @@ class Cli(Base):
         groups = json.loads(path.read_text())["hooks"]["SessionStart"]
         self.assertEqual(groups[0], mine)
         self.assertEqual(len(groups), 2)
+
+    def test_install_write_knows_other_interpreter_names(self):
+        for py in ("/usr/bin/pypy3", "/usr/bin/py", "/Applications/X/Contents/MacOS/Python", "/opt/my dir/python3.12",
+                   "graalpy", "python3"):
+            cmd = f"{shlex.quote(py)} /old/clone/ctx.py hook session-start"
+            data = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": cmd}]}]}}
+            groups = ctx.merge_hook(data, "NEW")["hooks"]["SessionStart"]
+            self.assertEqual([h["command"] for g in groups for h in g["hooks"]], ["NEW"], py)
+        data = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": ctx.hook_command(), "timeout": 5}]}]}}
+        self.assertEqual(ctx.merge_hook(data, ctx.hook_command()), data)
 
     def test_install_write_leaves_hand_made_commands(self):
         path = self.root / "cfg" / "settings.json"
