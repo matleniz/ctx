@@ -5,7 +5,9 @@ Detail behind the "What a session receives" section of the [README](../README.md
 
 ## Where it looks
 
-- Up to 4 levels below the start folder. `~/projects/<p>/wt/<branch>` is level 4.
+- The start folder's own `STATE.md`, shown first as "this folder", outside the 30-line and per-group caps, with
+  the same checks and cleaning. Then up to 4 levels below the start folder. `~/projects/<p>/wt/<branch>` is level
+  4. With a `STATE.md` in the start folder, the header reads "State of <folder> and of the folders below it".
 - Hidden folders are skipped. So are symlinked folders and folders named `node_modules`, `venv`, `env`,
   `__pycache__`, `dist`, `build`, `target` or `site-packages`.
 - A folder with a `.git` entry is a repository. Its `.git` is never opened.

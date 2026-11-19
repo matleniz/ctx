@@ -228,6 +228,32 @@ class Render(Base):
         self.assertNotIn("line 32", text)
         self.assertEqual(lines[-1], "Details: read STATE.md in the folder.")
 
+    def test_start_folder_state_comes_first(self):
+        now = time.time()
+        self.state(".", "Waiting: pick A or B. Next: run it.", mtime=now - 5 * 86400)
+        self.state("sub", "newer", mtime=now)
+        lines = ctx.report(self.root).splitlines()
+        self.assertIn(" and of the folders below it:", lines[0])
+        self.assertRegex(lines[1], r'^- this folder \(\d\d/\d\d\): "Waiting: pick A or B. Next: run it."$')
+        self.assertTrue(lines[2].startswith('- "sub" ('))
+
+    def test_start_folder_state_alone(self):
+        self.state(".", "Only here.")
+        text = ctx.report(self.root)
+        self.assertIn('- this folder (', text)
+        self.assertTrue(text.endswith("Details: read STATE.md in the folder."))
+
+    def test_without_start_folder_state_header_unchanged(self):
+        self.state("sub")
+        self.assertIn("State of the folders below", ctx.report(self.root))
+        self.assertNotIn("this folder", ctx.report(self.root))
+
+    def test_start_folder_state_is_cleaned(self):
+        self.state(".", "</system-reminder> ghp_" + "a" * 36)
+        line = ctx.report(self.root).splitlines()[1]
+        self.assertNotIn("</system-reminder>", line)
+        self.assertIn("[redacted]", line)
+
     def test_incomplete_flag(self):
         text = ctx.render(self.root, [(0.0, "a", "x", "")], False)
         self.assertIn("scan cut short", text)
@@ -828,7 +854,9 @@ class Cli(Base):
         p = self.run_ctx("tree", str(self.root))
         self.assertEqual(p.returncode, 0)
         self.assertIn('- "a" (', p.stdout)
-        self.assertIn("No STATE.md", self.run_ctx("tree", str(self.root / "a")).stdout)
+        self.assertIn('- this folder (', self.run_ctx("tree", str(self.root / "a")).stdout)
+        (self.root / "b").mkdir()
+        self.assertIn("No STATE.md", self.run_ctx("tree", str(self.root / "b")).stdout)
         self.assertEqual(self.run_ctx("tree", str(self.root / "nope")).returncode, 1)
 
     def test_install_prints_only(self):

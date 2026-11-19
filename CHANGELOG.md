@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.0 - 2026-11-19
+
+From a project with several sub-folders (a study, a lab, a worktree), where sessions always start in the project
+folder and its own `STATE.md` never showed.
+
+- The start folder's own `STATE.md` comes first, as "this folder", outside the caps. `ctx.py tree` shows it too.
+- Rule: a project folder (several working folders of one project, with its own `STATE.md`) is read when working
+  below it, and its line 1 and Next are updated when a sub-folder's line 1 changes. A plain container is one of
+  unrelated folders.
+
 ## 2.1.0 - 2026-11-07
 
 From a first install on another computer: less defense, an install that writes, a README that reads once.
